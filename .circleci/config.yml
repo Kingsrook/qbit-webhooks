@@ -1,0 +1,56 @@
+version: 2.1
+
+executors:
+  java-executor:
+    docker:
+      - image: cimg/openjdk:17.0
+
+jobs:
+  verify:
+    executor: java-executor
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-maven-cache-{{ checksum "pom.xml" }}
+      - run:
+          name: Verify with Maven
+          command: mvn -s .circleci/mvn-settings.xml verify
+      - store_test_results:
+          path: target/surefire-reports
+      - save_cache:
+          paths:
+            - ~/.m2/repository
+          key: v1-maven-cache-{{ checksum "pom.xml" }}
+
+  deploy:
+    executor: java-executor
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-maven-cache-{{ checksum "pom.xml" }}
+      - run:
+          name: Deploy with Maven
+          command: mvn -s .circleci/mvn-settings.xml deploy
+      - store_test_results:
+          path: target/surefire-reports
+      - save_cache:
+          paths:
+            - ~/.m2/repository
+          key: v1-maven-cache-{{ checksum "pom.xml" }}
+
+workflows:
+  version: 2
+  build_and_deploy:
+    jobs:
+      - verify:
+          context: qqq-maven-registry-credentials
+          filters:
+            branches:
+              ignore: main
+      - deploy:
+          context: qqq-maven-registry-credentials
+          filters:
+            branches:
+              only: main
