@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
 import com.kingsrook.qbits.webhooks.registry.WebhookEventTypePossibleValueSource;
-import com.kingsrook.qbits.webhooks.widgets.WebhookSubscriptionQueryFilterWidgetMetaDataProducer;
 import com.kingsrook.qqq.api.model.metadata.ApiInstanceMetaDataProvider;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterOrderBy;
@@ -101,7 +100,7 @@ public class WebhookSubscription extends QRecordEntity
             .withSection(SectionFactory.defaultT1("id", "webhookId", "webhookEventTypeName"))
             .withSection(SectionFactory.defaultT2("activeStatusId", "apiName", "apiVersion"))
             // todo - if adding filters in future .withSection(SectionFactory.customT2("hidden", new QIcon().withName("hidden"), "queryFilterJson").withIsHidden(true))
-            .withSection(SectionFactory.customT2("filter", new QIcon("filter_alt")).withWidgetName(WebhookSubscriptionQueryFilterWidgetMetaDataProducer.NAME))
+            // todo - if adding filters in future .withSection(SectionFactory.customT2("filter", new QIcon("filter_alt")).withWidgetName(WebhookSubscriptionQueryFilterWidgetMetaDataProducer.NAME))
             .withSection(SectionFactory.customT2("events", new QIcon("notifications")).withWidgetName(childJoinName))
             .withSection(SectionFactory.defaultT3("createDate", "modifyDate"))
             .withExposedJoin(new ExposedJoin().withLabel("Webhook").withJoinPath(List.of(parentJoinName)).withJoinTable(Webhook.TABLE_NAME));
