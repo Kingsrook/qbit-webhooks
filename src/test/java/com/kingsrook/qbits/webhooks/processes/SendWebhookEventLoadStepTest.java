@@ -23,6 +23,7 @@ package com.kingsrook.qbits.webhooks.processes;
 
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import com.kingsrook.qbits.webhooks.BaseTest;
 import com.kingsrook.qbits.webhooks.WebhooksTestApplication;
@@ -60,58 +61,42 @@ class SendWebhookEventLoadStepTest extends BaseTest
 {
 
    /*******************************************************************************
-    **
+    * we had 12 fails on the books, so we'll have one more fail and go to unhealthy
     *******************************************************************************/
    @Test
-   void test() throws QException
+   void testLast12failedThenAnotherFailed() throws QException
    {
       String eventTypeName = WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME;
 
-      Integer webhookId = insert(newWebhook("test"));
-      Webhook webhook   = new Webhook(GetAction.execute(Webhook.TABLE_NAME, webhookId));
+      Integer webhookId0 = insert(newWebhook("test"));
+      Webhook webhook    = new Webhook(GetAction.execute(Webhook.TABLE_NAME, webhookId0));
 
-      Integer             subscriptionId      = insert(newWebhookSubscription(eventTypeName).withWebhookId(webhookId));
+      Integer             subscriptionId      = insert(newWebhookSubscription(eventTypeName).withWebhookId(webhookId0));
       WebhookSubscription webhookSubscription = new WebhookSubscription(GetAction.execute(WebhookSubscription.TABLE_NAME, subscriptionId));
+      Integer             webhookId           = webhookSubscription.getWebhookId();
 
       ///////////////////////////////////////////
       // insert 3 events, each with 4 failures //
       ///////////////////////////////////////////
-      Integer eventId0 = insert(newWebhookEvent(webhookSubscription, eventTypeName).withEventStatusId(WebhookEventStatus.AWAITING_RETRY.getId()));
-      Integer eventId1 = insert(newWebhookEvent(webhookSubscription, eventTypeName).withEventStatusId(WebhookEventStatus.AWAITING_RETRY.getId()));
-      Integer eventId2 = insert(newWebhookEvent(webhookSubscription, eventTypeName).withEventStatusId(WebhookEventStatus.AWAITING_RETRY.getId()));
+      Integer eventId0 = insertEventAwaitingRetry(webhookSubscription);
+      Integer eventId1 = insertEventAwaitingRetry(webhookSubscription);
+      Integer eventId2 = insertEventAwaitingRetry(webhookSubscription);
+      insertNFailLogsPerEvent(webhookId, 4, eventId0, eventId1, eventId2);
 
-      new InsertAction().execute(new InsertInput(WebhookEventSendLog.TABLE_NAME).withRecordEntities(Collections.nCopies(4,
-         new WebhookEventSendLog().withWebhookId(webhookId).withWebhookEventId(eventId0).withSuccessful(false))));
+      ArrayList<ProcessSummaryLineInterface> processSummaryLines = runProcess(webhook, new WebhookEventSenderTest.WebhookEventSenderThatFails(), eventId0, eventId1, eventId2);
 
-      new InsertAction().execute(new InsertInput(WebhookEventSendLog.TABLE_NAME).withRecordEntities(Collections.nCopies(4,
-         new WebhookEventSendLog().withWebhookId(webhookId).withWebhookEventId(eventId1).withSuccessful(false))));
-
-      new InsertAction().execute(new InsertInput(WebhookEventSendLog.TABLE_NAME).withRecordEntities(Collections.nCopies(4,
-         new WebhookEventSendLog().withWebhookId(webhookId).withWebhookEventId(eventId2).withSuccessful(false))));
-
-      SendWebhookEventLoadStep loadStep = getSendWebhookEventLoadStep(new WebhookEventSenderTest.WebhookEventSenderThatFails());
-      loadStep.setTransformStep(new SendWebhookEventTransformStep().withWebhook(webhook));
-
-      //////////////////////////////////
-      // run process for these events //
-      //////////////////////////////////
-      RunBackendStepInput input = new RunBackendStepInput();
-      input.withRecords(QueryAction.execute(WebhookEvent.TABLE_NAME, new QQueryFilter()
-         .withCriteria(new QFilterCriteria("id", QCriteriaOperator.IN, eventId0, eventId1, eventId2))
-         .withOrderBy(new QFilterOrderBy("id"))));
-      RunBackendStepOutput output = new RunBackendStepOutput();
-      loadStep.runOnePage(input, output);
-
+      ////////////////////////////////////////
+      // make sure webhook became unhealthy //
+      ////////////////////////////////////////
       assertEquals(WebhookHealthStatus.UNHEALTHY.getId(), GetAction.execute(Webhook.TABLE_NAME, webhookId).getValue("healthStatusId"));
 
       ///////////////////////////////////////////////////////////////////////////////////////////////////////
       // only the first event should have been processed, because the webhook became unhealthy after that. //
       ///////////////////////////////////////////////////////////////////////////////////////////////////////
-      assertEquals(WebhookEventStatus.FAILED.getId(), GetAction.execute(WebhookEvent.TABLE_NAME, eventId0).getValue("eventStatusId"));
-      assertEquals(WebhookEventStatus.AWAITING_RETRY.getId(), GetAction.execute(WebhookEvent.TABLE_NAME, eventId1).getValue("eventStatusId"));
-      assertEquals(WebhookEventStatus.AWAITING_RETRY.getId(), GetAction.execute(WebhookEvent.TABLE_NAME, eventId2).getValue("eventStatusId"));
+      assertWebhookEventStatus(WebhookEventStatus.FAILED, eventId0);
+      assertWebhookEventStatus(WebhookEventStatus.AWAITING_RETRY, eventId1);
+      assertWebhookEventStatus(WebhookEventStatus.AWAITING_RETRY, eventId2);
 
-      ArrayList<ProcessSummaryLineInterface> processSummaryLines = loadStep.doGetProcessSummary(output, true);
       assertEquals(2, processSummaryLines.size());
 
       assertEquals(Status.ERROR, processSummaryLines.get(0).getStatus());
@@ -121,6 +106,155 @@ class SendWebhookEventLoadStepTest extends BaseTest
       assertEquals(Status.WARNING, processSummaryLines.get(1).getStatus());
       assertEquals(2, ((ProcessSummaryLine) processSummaryLines.get(1)).getCount());
       assertThat(processSummaryLines.get(1).getMessage()).contains("were not sent because their associated webhook became unhealthy.");
+   }
+
+
+   /*******************************************************************************
+    * we had 12 fails on the books, but now a success and we'll be successful
+    *******************************************************************************/
+   @Test
+   void testLast12failedThenSuccess() throws QException
+   {
+      String eventTypeName = WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME;
+
+      Integer webhookId0 = insert(newWebhook("test").withHealthStatusId(WebhookHealthStatus.PROBATION.getId()));
+      Webhook webhook    = new Webhook(GetAction.execute(Webhook.TABLE_NAME, webhookId0));
+
+      Integer             subscriptionId      = insert(newWebhookSubscription(eventTypeName).withWebhookId(webhookId0));
+      WebhookSubscription webhookSubscription = new WebhookSubscription(GetAction.execute(WebhookSubscription.TABLE_NAME, subscriptionId));
+      Integer             webhookId           = webhookSubscription.getWebhookId();
+
+      ///////////////////////////////////////////
+      // insert 3 events, each with 4 failures //
+      ///////////////////////////////////////////
+      Integer eventId0 = insertEventAwaitingRetry(webhookSubscription);
+      Integer eventId1 = insertEventAwaitingRetry(webhookSubscription);
+      Integer eventId2 = insertEventAwaitingRetry(webhookSubscription);
+      insertNFailLogsPerEvent(webhookId, 4, eventId0, eventId1, eventId2);
+
+      ArrayList<ProcessSummaryLineInterface> processSummaryLines = runProcess(webhook, new WebhookEventSenderTest.WebhookEventSenderThatSucceeds(), eventId0, eventId1, eventId2);
+
+      //////////////////////////////////////
+      // make sure webhook became healthy //
+      //////////////////////////////////////
+      assertEquals(WebhookHealthStatus.HEALTHY.getId(), GetAction.execute(Webhook.TABLE_NAME, webhookId).getValue("healthStatusId"));
+
+      ///////////////////////////////////////////////////////////////////////////////////////////////////////
+      // only the first event should have been processed, because the webhook became unhealthy after that. //
+      ///////////////////////////////////////////////////////////////////////////////////////////////////////
+      assertWebhookEventStatus(WebhookEventStatus.DELIVERED, eventId0);
+      assertWebhookEventStatus(WebhookEventStatus.DELIVERED, eventId1);
+      assertWebhookEventStatus(WebhookEventStatus.DELIVERED, eventId2);
+
+      assertEquals(1, processSummaryLines.size());
+
+      assertEquals(Status.OK, processSummaryLines.get(0).getStatus());
+      assertEquals(3, ((ProcessSummaryLine) processSummaryLines.get(0)).getCount());
+      assertThat(processSummaryLines.get(0).getMessage()).contains("were delivered");
+   }
+
+
+
+   /*******************************************************************************
+    * we have 6 fails on the books - now all 3 will fail, but not enough to go unhealthy
+    *******************************************************************************/
+   @Test
+   void testLast6failed() throws QException
+   {
+      String eventTypeName = WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME;
+
+      Integer webhookId0 = insert(newWebhook("test"));
+      Webhook webhook    = new Webhook(GetAction.execute(Webhook.TABLE_NAME, webhookId0));
+
+      Integer             subscriptionId      = insert(newWebhookSubscription(eventTypeName).withWebhookId(webhookId0));
+      WebhookSubscription webhookSubscription = new WebhookSubscription(GetAction.execute(WebhookSubscription.TABLE_NAME, subscriptionId));
+      Integer             webhookId           = webhookSubscription.getWebhookId();
+
+      ///////////////////////////////////////////
+      // insert 3 events, each with 2 failures //
+      ///////////////////////////////////////////
+      Integer eventId0 = insertEventAwaitingRetry(webhookSubscription);
+      Integer eventId1 = insertEventAwaitingRetry(webhookSubscription);
+      Integer eventId2 = insertEventAwaitingRetry(webhookSubscription);
+      insertNFailLogsPerEvent(webhookId, 2, eventId0, eventId1, eventId2);
+
+      ArrayList<ProcessSummaryLineInterface> processSummaryLines = runProcess(webhook, new WebhookEventSenderTest.WebhookEventSenderThatFails(), eventId0, eventId1, eventId2);
+
+      ////////////////////////////////////////
+      // make sure webhook is still healthy //
+      ////////////////////////////////////////
+      assertEquals(WebhookHealthStatus.HEALTHY.getId(), GetAction.execute(Webhook.TABLE_NAME, webhookId).getValue("healthStatusId"));
+
+      //////////////////////////////////////////
+      // all 3 should still be awaiting retry //
+      //////////////////////////////////////////
+      assertWebhookEventStatus(WebhookEventStatus.AWAITING_RETRY, eventId0);
+      assertWebhookEventStatus(WebhookEventStatus.AWAITING_RETRY, eventId1);
+      assertWebhookEventStatus(WebhookEventStatus.AWAITING_RETRY, eventId2);
+
+      assertEquals(1, processSummaryLines.size());
+
+      assertEquals(Status.ERROR, processSummaryLines.get(0).getStatus());
+      assertEquals(3, ((ProcessSummaryLine) processSummaryLines.get(0)).getCount());
+      assertThat(processSummaryLines.get(0).getMessage()).contains("failed to deliver");
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private void assertWebhookEventStatus(WebhookEventStatus webhookEventStatus, Integer eventId) throws QException
+   {
+      assertEquals(webhookEventStatus.getId(), GetAction.execute(WebhookEvent.TABLE_NAME, eventId).getValue("eventStatusId"));
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private static ArrayList<ProcessSummaryLineInterface> runProcess(Webhook webhook, WebhookEventSender webhookEventSender, Integer... eventIds) throws QException
+   {
+      SendWebhookEventLoadStep                           loadStep           = getSendWebhookEventLoadStep(webhookEventSender);
+      loadStep.setTransformStep(new SendWebhookEventTransformStep().withWebhook(webhook));
+
+      //////////////////////////////////
+      // run process for these events //
+      //////////////////////////////////
+      RunBackendStepInput input = new RunBackendStepInput();
+      input.withRecords(QueryAction.execute(WebhookEvent.TABLE_NAME, new QQueryFilter()
+         .withCriteria(new QFilterCriteria("id", QCriteriaOperator.IN, Arrays.stream(eventIds).toList()))
+         .withOrderBy(new QFilterOrderBy("id"))));
+      RunBackendStepOutput output = new RunBackendStepOutput();
+      loadStep.preRun(input, output);
+      loadStep.runOnePage(input, output);
+      ArrayList<ProcessSummaryLineInterface> processSummaryLines = loadStep.doGetProcessSummary(output, true);
+      return processSummaryLines;
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private static void insertNFailLogsPerEvent(Integer webhookId, int n, Integer... eventIds) throws QException
+   {
+      for(Integer eventId : eventIds)
+      {
+         new InsertAction().execute(new InsertInput(WebhookEventSendLog.TABLE_NAME).withRecordEntities(Collections.nCopies(n,
+            new WebhookEventSendLog().withWebhookId(webhookId).withWebhookEventId(eventId).withSuccessful(false))));
+      }
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private static Integer insertEventAwaitingRetry(WebhookSubscription webhookSubscription) throws QException
+   {
+      return insert(newWebhookEvent(webhookSubscription, webhookSubscription.getWebhookEventTypeName()).withEventStatusId(WebhookEventStatus.AWAITING_RETRY.getId()));
    }
 
 

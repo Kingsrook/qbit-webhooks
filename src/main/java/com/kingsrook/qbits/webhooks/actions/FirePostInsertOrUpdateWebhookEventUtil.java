@@ -22,15 +22,21 @@
 package com.kingsrook.qbits.webhooks.actions;
 
 
+import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import com.kingsrook.qbits.webhooks.model.WebhookSubscription;
 import com.kingsrook.qbits.webhooks.registry.WebhookEventType;
 import com.kingsrook.qqq.backend.core.actions.QBackendTransaction;
+import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
+import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
 import com.kingsrook.qqq.backend.core.utils.CollectionUtils;
+import com.kingsrook.qqq.backend.core.utils.StringUtils;
+import com.kingsrook.qqq.backend.core.utils.ValueUtils;
 import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
 
 
@@ -66,5 +72,68 @@ public abstract class FirePostInsertOrUpdateWebhookEventUtil
          }
       }
       return webhookEventBuilder;
+   }
+
+
+
+   /***************************************************************************
+    **
+    ***************************************************************************/
+   public static QFieldMetaData getQFieldMetaData(WebhookEventType webhookEventType)
+   {
+      QFieldMetaData field = null;
+      if(StringUtils.hasContent(webhookEventType.getFieldName()))
+      {
+         field = QContext.getQInstance().getTable(webhookEventType.getTableName()).getFields().get(webhookEventType.getFieldName());
+         if(field == null)
+         {
+            LOG.warn("No field found for webhook event type", logPair("webhookEventType", webhookEventType), logPair("tableName", webhookEventType.getTableName()), logPair("fieldName", webhookEventType.getFieldName()));
+         }
+      }
+      return field;
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   public static Serializable getValue(QRecord record, QFieldMetaData field)
+   {
+      if(field == null)
+      {
+         return (null);
+      }
+
+      return ValueUtils.getValueAsFieldType(field.getType(), record.getValue(field.getName()));
+   }
+
+
+   /***************************************************************************
+    **
+    ***************************************************************************/
+   public static boolean doesNewValueMatchEventValue(WebhookEventType webhookEventType, QFieldMetaData field, Serializable newValue)
+   {
+      Serializable eventValue = webhookEventType.getValue();
+      if(eventValue instanceof Collection<?> collection)
+      {
+         for(Object o : collection)
+         {
+            Serializable eventSubValueAsFieldType = ValueUtils.getValueAsFieldType(field.getType(), o);
+            if(Objects.equals(eventSubValueAsFieldType, newValue))
+            {
+               return true;
+            }
+         }
+      }
+      else
+      {
+         Serializable eventValueAsFieldType = ValueUtils.getValueAsFieldType(field.getType(), eventValue);
+         if(Objects.equals(eventValueAsFieldType, newValue))
+         {
+            return true;
+         }
+      }
+      return false;
    }
 }

@@ -28,10 +28,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 import com.kingsrook.qbits.webhooks.BaseTest;
+import com.kingsrook.qbits.webhooks.WebhooksTestApplication;
 import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookActiveStatus;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
-import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
 import com.kingsrook.qbits.webhooks.model.WebhookEventStatus;
 import com.kingsrook.qbits.webhooks.model.WebhookHealthStatus;
 import com.kingsrook.qbits.webhooks.model.WebhookSubscription;
@@ -54,8 +54,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *******************************************************************************/
 class SendWebhookEventExtractStepTest extends BaseTest
 {
-   private final static String EVENT_TYPE_NAME = "insert-person";
-
 
 
    /*******************************************************************************
@@ -67,13 +65,11 @@ class SendWebhookEventExtractStepTest extends BaseTest
       /////////////////////////////////////////////////////////////////////////////////////////////////////////////
       // make sure if there are valid events for multiple webhooks, that we only find the ones we're looking for //
       /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-      registerEventType(EVENT_TYPE_NAME, WebhookEventCategory.INSERT);
-
       Integer webhookId1 = 1;
       Integer webhookId2 = 2;
       List<QRecord> webhooks = new InsertAction().execute(new InsertInput(Webhook.TABLE_NAME).withRecordEntities(List.of(
-         new Webhook().withId(webhookId1).withName("a").withUrl("a").withSubscriptions(List.of(newWebhookSubscription(EVENT_TYPE_NAME))),
-         new Webhook().withId(webhookId2).withName("b").withUrl("b").withSubscriptions(List.of(newWebhookSubscription(EVENT_TYPE_NAME)))
+         new Webhook().withId(webhookId1).withName("a").withUrl("a").withSubscriptions(List.of(newWebhookSubscription(WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME))),
+         new Webhook().withId(webhookId2).withName("b").withUrl("b").withSubscriptions(List.of(newWebhookSubscription(WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME)))
       ))).getRecords();
 
       WebhookSubscription subscription1 = new WebhookSubscription(webhooks.get(0).getAssociatedRecords().get(Webhook.SUBSCRIPTIONS_ASSOCIATION_NAME).get(0));
@@ -83,15 +79,15 @@ class SendWebhookEventExtractStepTest extends BaseTest
          ////////////////////////////
          // 3 events for webhook 1 //
          ////////////////////////////
-         newWebhookEvent(subscription1, EVENT_TYPE_NAME).withEventSourceRecordId(11),
-         newWebhookEvent(subscription1, EVENT_TYPE_NAME).withEventSourceRecordId(12),
-         newWebhookEvent(subscription1, EVENT_TYPE_NAME).withEventSourceRecordId(13),
+         newWebhookEvent(subscription1, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withEventSourceRecordId(11),
+         newWebhookEvent(subscription1, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withEventSourceRecordId(12),
+         newWebhookEvent(subscription1, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withEventSourceRecordId(13),
 
          ////////////////////////////
          // 2 events for webhook 2 //
          ////////////////////////////
-         newWebhookEvent(subscription2, EVENT_TYPE_NAME).withEventSourceRecordId(20),
-         newWebhookEvent(subscription2, EVENT_TYPE_NAME).withEventSourceRecordId(21)
+         newWebhookEvent(subscription2, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withEventSourceRecordId(20),
+         newWebhookEvent(subscription2, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withEventSourceRecordId(21)
       )));
 
       assertEquals(3, runStepForWebhookId(webhookId1).size());
@@ -107,8 +103,6 @@ class SendWebhookEventExtractStepTest extends BaseTest
    @Test
    void testWebhookScenarios() throws QException
    {
-      registerEventType(EVENT_TYPE_NAME, WebhookEventCategory.INSERT);
-
       testWebhookScenario(true, new Webhook());
       testWebhookScenario(false, new Webhook().withActiveStatusId(WebhookActiveStatus.PAUSED.getId()));
       testWebhookScenario(false, new Webhook().withActiveStatusId(WebhookActiveStatus.DISABLED.getId()));
@@ -123,19 +117,17 @@ class SendWebhookEventExtractStepTest extends BaseTest
     ***************************************************************************/
    private void testWebhookScenario(boolean expectToFindEvent, Webhook webhook) throws QException
    {
-      registerEventType(EVENT_TYPE_NAME, WebhookEventCategory.INSERT);
-
       QRecord insertedWebhook = new InsertAction().execute(new InsertInput(Webhook.TABLE_NAME).withRecordEntities(List.of(webhook
          .withName(UUID.randomUUID().toString())
          .withUrl("a")
          .withSubscriptions(List.of(
-            newWebhookSubscription(EVENT_TYPE_NAME)
+            newWebhookSubscription(WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME)
          ))))).getRecords().get(0);
 
       WebhookSubscription subscription = new WebhookSubscription(insertedWebhook.getAssociatedRecords().get(Webhook.SUBSCRIPTIONS_ASSOCIATION_NAME).get(0));
 
       new InsertAction().execute(new InsertInput(WebhookEvent.TABLE_NAME).withRecordEntities(List.of(
-         newWebhookEvent(subscription, EVENT_TYPE_NAME).withEventSourceRecordId(100)
+         newWebhookEvent(subscription, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withEventSourceRecordId(100)
       )));
 
       List<QRecord> events = runStepForWebhookId(insertedWebhook.getValueInteger("id"));
@@ -199,12 +191,12 @@ class SendWebhookEventExtractStepTest extends BaseTest
          .withName(UUID.randomUUID().toString())
          .withUrl("a")
          .withSubscriptions(List.of(
-            newWebhookSubscription(EVENT_TYPE_NAME)
+            newWebhookSubscription(WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME)
          ))))).getRecords().get(0);
 
       WebhookSubscription subscription = new WebhookSubscription(insertedWebhook.getAssociatedRecords().get(Webhook.SUBSCRIPTIONS_ASSOCIATION_NAME).get(0));
 
-      WebhookEvent webhookEvent = newWebhookEvent(subscription, EVENT_TYPE_NAME);
+      WebhookEvent webhookEvent = newWebhookEvent(subscription, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME);
       webhookEventCustomizer.accept(webhookEvent);
 
       new InsertAction().execute(new InsertInput(WebhookEvent.TABLE_NAME).withRecordEntities(List.of(webhookEvent)));

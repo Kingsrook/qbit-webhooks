@@ -31,6 +31,9 @@ import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
 import com.kingsrook.qqq.backend.core.model.metadata.layout.QIcon;
+import com.kingsrook.qqq.backend.core.model.metadata.processes.QComponentType;
+import com.kingsrook.qqq.backend.core.model.metadata.processes.QFrontendComponentMetaData;
+import com.kingsrook.qqq.backend.core.model.metadata.processes.QFrontendStepMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.processes.QProcessMetaData;
 import com.kingsrook.qqq.backend.core.processes.implementations.etl.streamedwithfrontend.ExtractViaQueryStep;
 import com.kingsrook.qqq.backend.core.processes.implementations.etl.streamedwithfrontend.NoopTransformStep;
@@ -69,6 +72,14 @@ public class SendTestEventToWebhookProcessMetaDataProducer extends MetaDataProdu
             Webhook.TableMetaDataCustomizer.addHealthStatusChipAdornment(new QFieldMetaData("healthStatusId", QFieldType.INTEGER).withPossibleValueSourceName(WebhookHealthStatus.NAME))
          ))
          .getProcessMetaData();
+
+      processMetaData.withStep(0, new QFrontendStepMetaData()
+         .withName("input")
+         .withComponent(new QFrontendComponentMetaData()
+            .withType(QComponentType.EDIT_FORM))
+         .withFormField(new QFieldMetaData("uponSuccessUpdateUnhealthyWebhooksToProbation", QFieldType.BOOLEAN)
+            .withDefaultValue("true")
+            .withLabel("Upon Success Update Unhealthy Webhooks To Probation?")));
 
       return (processMetaData);
    }

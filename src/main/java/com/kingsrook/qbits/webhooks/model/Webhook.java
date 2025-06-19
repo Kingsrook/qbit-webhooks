@@ -26,7 +26,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
+import com.kingsrook.qbits.webhooks.actions.ClearWebhookSubscriptionHelperMemoizationsTableCustomizer;
 import com.kingsrook.qbits.webhooks.processes.SyncWebhookScheduledJobProcess;
+import com.kingsrook.qqq.backend.core.actions.customizers.MultiCustomizer;
+import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizers;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterOrderBy;
 import com.kingsrook.qqq.backend.core.model.data.QAssociation;
@@ -34,6 +37,7 @@ import com.kingsrook.qqq.backend.core.model.data.QField;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.data.QRecordEntity;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
+import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
 import com.kingsrook.qqq.backend.core.model.metadata.dashboard.QWidgetMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.AdornmentType;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.FieldAdornment;
@@ -76,7 +80,12 @@ import com.kingsrook.qqq.backend.core.utils.collections.MutableList;
          childTableEntityClass = WebhookEvent.class,
          joinFieldName = "webhookId",
          childJoin = @ChildJoin(enabled = true),
-         childRecordListWidget = @ChildRecordListWidget(label = "Events", enabled = true, maxRows = 25, widgetMetaDataCustomizer = Webhook.EventChildRecordWidgetMetaDataCustomizer.class))
+         childRecordListWidget = @ChildRecordListWidget(label = "Events", enabled = true, maxRows = 25, widgetMetaDataCustomizer = Webhook.EventAndEventSendLogChildRecordWidgetMetaDataCustomizer.class)),
+      @ChildTable(
+         childTableEntityClass = WebhookEventSendLog.class,
+         joinFieldName = "webhookId",
+         childJoin = @ChildJoin(enabled = true),
+         childRecordListWidget = @ChildRecordListWidget(label = "Event Send Log", enabled = true, maxRows = 25, widgetMetaDataCustomizer = Webhook.EventAndEventSendLogChildRecordWidgetMetaDataCustomizer.class))
    }
 )
 public class Webhook extends QRecordEntity
@@ -100,6 +109,7 @@ public class Webhook extends QRecordEntity
       {
          String subscriptionChildJoinName = QJoinMetaData.makeInferredJoinName(Webhook.TABLE_NAME, WebhookSubscription.TABLE_NAME);
          String eventChildJoinName        = QJoinMetaData.makeInferredJoinName(Webhook.TABLE_NAME, WebhookEvent.TABLE_NAME);
+         String eventSendLogChildJoinName = QJoinMetaData.makeInferredJoinName(Webhook.TABLE_NAME, WebhookEventSendLog.TABLE_NAME);
 
          QFieldSection t1section = SectionFactory.defaultT1("id", "name", "description");
 
@@ -111,6 +121,7 @@ public class Webhook extends QRecordEntity
             .withSection(SectionFactory.defaultT2("url", "activeStatusId", "healthStatusId"))
             .withSection(SectionFactory.customT2("subscriptions", new QIcon("subscriptions")).withWidgetName(subscriptionChildJoinName))
             .withSection(SectionFactory.customT2("events", new QIcon("notifications")).withWidgetName(eventChildJoinName))
+            .withSection(SectionFactory.customT2("sendLog", new QIcon("receipt_long")).withWidgetName(eventSendLogChildJoinName))
             .withSection(SectionFactory.defaultT3("createDate", "modifyDate"))
             .withExposedJoin(new ExposedJoin().withLabel("Subscriptions").withJoinPath(List.of(subscriptionChildJoinName)).withJoinTable(WebhookSubscription.TABLE_NAME))
             .withAssociation(new Association().withName(SUBSCRIPTIONS_ASSOCIATION_NAME).withAssociatedTableName(WebhookSubscription.TABLE_NAME).withJoinName(subscriptionChildJoinName));
@@ -134,7 +145,16 @@ public class Webhook extends QRecordEntity
             }
          }
 
-         BaseSyncToScheduledJobTableCustomizer.setTableCustomizers(table, new SyncWebhookScheduledJobProcess());
+         ////////////////////////////////////////////////////////////////////////
+         // we need 2 customizers to run post insert, update, and delete:      //
+         // first, to clear the webhookSubscriptionHelper class's memoizations //
+         // second, to sync scheduled jobs for this table                      //
+         ////////////////////////////////////////////////////////////////////////
+         QCodeReference syncScheduledJobCustomizer    = BaseSyncToScheduledJobTableCustomizer.makeCodeReference(table, new SyncWebhookScheduledJobProcess());
+         QCodeReference postEverythingMultiCustomizer = MultiCustomizer.of(new QCodeReference(ClearWebhookSubscriptionHelperMemoizationsTableCustomizer.class), syncScheduledJobCustomizer);
+         table.withCustomizer(TableCustomizers.POST_INSERT_RECORD, postEverythingMultiCustomizer);
+         table.withCustomizer(TableCustomizers.POST_UPDATE_RECORD, postEverythingMultiCustomizer);
+         table.withCustomizer(TableCustomizers.POST_DELETE_RECORD, postEverythingMultiCustomizer);
 
          return (table);
       }
@@ -173,7 +193,7 @@ public class Webhook extends QRecordEntity
    /***************************************************************************
     **
     ***************************************************************************/
-   public static class EventChildRecordWidgetMetaDataCustomizer implements MetaDataCustomizerInterface<QWidgetMetaData>
+   public static class EventAndEventSendLogChildRecordWidgetMetaDataCustomizer implements MetaDataCustomizerInterface<QWidgetMetaData>
    {
       /***************************************************************************
        **

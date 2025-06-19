@@ -25,7 +25,8 @@ package com.kingsrook.qbits.webhooks.processes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Queue;
+import java.util.Stack;
+import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
 import com.kingsrook.qbits.webhooks.actions.WebhookEventSender;
 import com.kingsrook.qbits.webhooks.actions.WebhookHealthManager;
 import com.kingsrook.qbits.webhooks.model.Webhook;
@@ -48,8 +49,6 @@ import com.kingsrook.qqq.backend.core.processes.implementations.etl.streamedwith
 import com.kingsrook.qqq.backend.core.processes.implementations.etl.streamedwithfrontend.ProcessSummaryProviderInterface;
 import com.kingsrook.qqq.backend.core.utils.CollectionUtils;
 import com.kingsrook.qqq.backend.core.utils.ListingHash;
-import org.apache.commons.collections4.QueueUtils;
-import org.apache.commons.collections4.queue.CircularFifoQueue;
 import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
 import static com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator.IN;
 
@@ -64,7 +63,9 @@ public class SendWebhookEventLoadStep extends AbstractLoadStep implements Proces
    ///////////////////////
    // most recent first //
    ///////////////////////
-   private Queue<Boolean> recentSuccesses = QueueUtils.synchronizedQueue(new CircularFifoQueue<>(WebhookHealthManager.REPEATED_FAILS_TO_GO_UNHEALTHY));
+   private boolean                    doHealthChecks = false;
+   private Integer                    repeatedFailsToGoUnhealthy;
+   private Stack<WebhookEventSendLog> recentSendLogs;
 
    private ProcessSummaryLine okLine = new ProcessSummaryLine(Status.OK)
       .withMessageSuffix(" delivered")
@@ -113,6 +114,22 @@ public class SendWebhookEventLoadStep extends AbstractLoadStep implements Proces
     **
     ***************************************************************************/
    @Override
+   public void preRun(RunBackendStepInput runBackendStepInput, RunBackendStepOutput runBackendStepOutput) throws QException
+   {
+      repeatedFailsToGoUnhealthy = WebhooksQBitConfig.getConfigValue(config -> config.getRepeatedFailsToGoUnhealthy());
+      if(repeatedFailsToGoUnhealthy != null)
+      {
+         recentSendLogs = newSendLogStack(repeatedFailsToGoUnhealthy);
+         doHealthChecks = true;
+      }
+   }
+
+
+
+   /***************************************************************************
+    **
+    ***************************************************************************/
+   @Override
    public void runOnePage(RunBackendStepInput runBackendStepInput, RunBackendStepOutput runBackendStepOutput) throws QException
    {
       if(runBackendStepInput.getRecords().isEmpty())
@@ -125,13 +142,14 @@ public class SendWebhookEventLoadStep extends AbstractLoadStep implements Proces
       ///////////////////////////////////////////////////////////////////////////////////////////
       // look up the last several send logs for this webhook, to seed the recentSuccesses list //
       ///////////////////////////////////////////////////////////////////////////////////////////
-      List<WebhookEventSendLog> recentSendLogs = QueryAction.execute(WebhookEventSendLog.TABLE_NAME, WebhookEventSendLog.class, new QQueryFilter()
-         .withCriteria(new QFilterCriteria("webhookId", QCriteriaOperator.EQUALS, webhook.getId()))
-         .withOrderBy(new QFilterOrderBy("id", false))
-         .withLimit(WebhookHealthManager.REPEATED_FAILS_TO_GO_UNHEALTHY));
-      for(WebhookEventSendLog recentSendLog : recentSendLogs)
+      if(doHealthChecks)
       {
-         recentSuccesses.add(recentSendLog.getSuccessful());
+         List<WebhookEventSendLog> recentSendLogs = QueryAction.execute(WebhookEventSendLog.TABLE_NAME, WebhookEventSendLog.class, new QQueryFilter()
+            .withCriteria(new QFilterCriteria("webhookId", QCriteriaOperator.EQUALS, webhook.getId()))
+            .withOrderBy(new QFilterOrderBy("id", false))
+            .withLimit(repeatedFailsToGoUnhealthy));
+         Collections.reverse(recentSendLogs);
+         this.recentSendLogs.addAll(recentSendLogs);
       }
 
       ///////////////////////////////////////////////////
@@ -164,9 +182,16 @@ public class SendWebhookEventLoadStep extends AbstractLoadStep implements Proces
                failLine.incrementCountAndAddPrimaryKey(webhookEvent.getId());
             }
 
-            recentSuccesses.add(lastSuccessful);
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            // if we're to update health, then add this last-successful boolean to the stack, and call the health manager //
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            if(doHealthChecks)
+            {
+               recentSendLogs.push(new WebhookEventSendLog()
+                  .withSuccessful(lastSuccessful));
+               webhook = new WebhookHealthManager().updateWebhookHealth(recentSendLogs, webhook);
+            }
 
-            webhook = new WebhookHealthManager().updateWebhookHealth(recentSuccesses, webhook);
             if(WebhookHealthStatus.UNHEALTHY.getId().equals(webhook.getHealthStatusId()))
             {
                LOG.info("Webhook is now unhealthy - not attempting any more sends.", logPair("id", webhook.getId()));
@@ -188,5 +213,48 @@ public class SendWebhookEventLoadStep extends AbstractLoadStep implements Proces
    protected WebhookEventSender newWebhookEventSender()
    {
       return new WebhookEventSender();
+   }
+
+
+   /***************************************************************************
+    * meant for tests - to make a stack of send log events
+    ***************************************************************************/
+   public Stack<WebhookEventSendLog> newSendLogStack(int maxSize)
+   {
+      return (new FixedStack<>(maxSize));
+   }
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   static class FixedStack<T> extends Stack<T>
+   {
+      private final int maxSize;
+
+
+
+      /***************************************************************************
+       *
+       ***************************************************************************/
+      public FixedStack(int maxSize)
+      {
+         this.maxSize = maxSize;
+      }
+
+
+
+      /***************************************************************************
+       *
+       ***************************************************************************/
+      @Override
+      public T push(T item)
+      {
+         if(size() >= maxSize)
+         {
+            remove(0);  // remove bottom element
+         }
+         return super.push(item);  // then push on top
+      }
    }
 }

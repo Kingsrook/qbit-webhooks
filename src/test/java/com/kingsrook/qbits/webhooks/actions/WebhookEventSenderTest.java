@@ -42,6 +42,8 @@ import com.kingsrook.qbits.webhooks.model.WebhookSubscription;
 import com.kingsrook.qqq.backend.core.actions.tables.GetAction;
 import com.kingsrook.qqq.backend.core.actions.tables.QueryAction;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.logging.QCollectingLogger;
+import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterOrderBy;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
@@ -403,6 +405,67 @@ public class WebhookEventSenderTest extends BaseTest
          assertFalse(sendLog.getSuccessful());
          assertNull(sendLog.getHttpStatusCode());
       }
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   @Test
+   void testRateLimit() throws QException
+   {
+      /////////////////////////////////////////////////////////////////
+      // use random ids to avoid everything being 1 and false-passes //
+      /////////////////////////////////////////////////////////////////
+      Random  random         = new Random();
+      Integer webhookId      = insert(newWebhook("Test"));
+      Integer subscriptionId = insert(newWebhookSubscription(WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME).withWebhookId(webhookId));
+      Integer eventId        = insert(newWebhookEvent(new WebhookSubscription(GetAction.execute(WebhookSubscription.TABLE_NAME, subscriptionId)), WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME));
+
+      WebhookEvent event = new WebhookEvent(GetAction.execute(WebhookEvent.TABLE_NAME, eventId));
+      event.setContent(List.of(new WebhookEventContent().withWebhookEventId(eventId).withPostBody("{}")));
+
+      Webhook                   webhook  = new Webhook(GetAction.execute(Webhook.TABLE_NAME, webhookId));
+      List<WebhookEventSendLog> sendLogs = new ArrayList<>();
+
+      {
+         ///////////////////////////////////////////////////////////
+         // use http mocker that will always fail with rate limit //
+         ///////////////////////////////////////////////////////////
+         long               start  = System.currentTimeMillis();
+         WebhookEventSender sender = new WebhookEventSenderThatMocksHttp(429, "Too many requests");
+         assertFalse(sender.handleEvent(event, webhook, sendLogs));
+         List<QRecord>       insertedSendLogs = QueryAction.execute(WebhookEventSendLog.TABLE_NAME, sendLogFilter);
+         WebhookEventSendLog sendLog          = new WebhookEventSendLog(insertedSendLogs.get(0));
+
+         long end = System.currentTimeMillis();
+         assertEquals("Giving up after too many rate-limit errors (3).  Latest response: Too many requests", sendLog.getErrorMessage());
+         assertFalse(sendLog.getSuccessful());
+         assertEquals(429, sendLog.getHttpStatusCode());
+         assertThat(end - start).isGreaterThan(WebhookEventSenderThatMocksHttp.BACKOFF_MILLIS * 3L);
+      }
+
+      {
+         ///////////////////////////////////////////////////////////////
+         // use a sender that will rate-limit twice, but then succeed //
+         ///////////////////////////////////////////////////////////////
+         QCollectingLogger  collectingLogger = QLogger.activateCollectingLoggerForClass(WebhookEventSender.class);
+         long               start  = System.currentTimeMillis();
+         WebhookEventSender sender = new RateLimitPassEventuallySender("Too fast");
+         assertTrue(sender.handleEvent(event, webhook, sendLogs));
+         List<QRecord>       insertedSendLogs = QueryAction.execute(WebhookEventSendLog.TABLE_NAME, sendLogFilter);
+         WebhookEventSendLog sendLog          = new WebhookEventSendLog(insertedSendLogs.get(0));
+         QLogger.deactivateCollectingLoggerForClass(WebhookEventSender.class);
+
+         long end = System.currentTimeMillis();
+         assertNull(sendLog.getErrorMessage());
+         assertTrue(sendLog.getSuccessful());
+         assertEquals(200, sendLog.getHttpStatusCode());
+         assertThat(end - start).isGreaterThan(WebhookEventSenderThatMocksHttp.BACKOFF_MILLIS * 3L);
+         assertThat(collectingLogger.getCollectedMessages())
+            .anyMatch(m -> m.getMessage().contains("Caught rate limit.  Will sleep and re-try"));
+      }
 
    }
 
@@ -446,9 +509,11 @@ public class WebhookEventSenderTest extends BaseTest
     ***************************************************************************/
    public static class WebhookEventSenderThatMocksHttp extends WebhookEventSender
    {
-      private Integer     statusCode;
-      private String      responseBody;
-      private IOException e;
+      protected Integer     statusCode;
+      protected String      responseBody;
+      private   IOException e;
+
+      public static final Integer BACKOFF_MILLIS = 3;
 
 
 
@@ -471,6 +536,17 @@ public class WebhookEventSenderTest extends BaseTest
       public WebhookEventSenderThatMocksHttp(IOException e)
       {
          this.e = e;
+      }
+
+
+
+      /***************************************************************************
+       **
+       ***************************************************************************/
+      @Override
+      protected int getInitialRateLimitBackoffMillis()
+      {
+         return (BACKOFF_MILLIS);
       }
 
 
@@ -759,6 +835,46 @@ public class WebhookEventSenderTest extends BaseTest
 
             }
          };
+      }
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   public static class RateLimitPassEventuallySender extends WebhookEventSenderThatMocksHttp
+   {
+      int count = 0;
+
+
+
+      /*******************************************************************************
+       ** Constructor
+       **
+       *******************************************************************************/
+      public RateLimitPassEventuallySender(String message)
+      {
+         super(429, message);
+      }
+
+
+
+      /***************************************************************************
+       **
+       ***************************************************************************/
+      @Override
+      protected CloseableHttpResponse executeHttpRequest(CloseableHttpClient httpClient, HttpPost request) throws IOException
+      {
+         count++;
+
+         if(count >= 3)
+         {
+            statusCode = 200;
+            responseBody = "OK";
+         }
+
+         return super.executeHttpRequest(httpClient, request);
       }
    }
 

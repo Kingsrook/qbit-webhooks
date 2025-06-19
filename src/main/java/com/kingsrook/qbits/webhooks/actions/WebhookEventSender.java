@@ -27,6 +27,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
 import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
 import com.kingsrook.qbits.webhooks.model.WebhookEventContent;
@@ -47,7 +49,9 @@ import com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter;
 import com.kingsrook.qqq.backend.core.model.actions.tables.update.UpdateInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.utils.CollectionUtils;
+import com.kingsrook.qqq.backend.core.utils.SleepUtils;
 import com.kingsrook.qqq.backend.core.utils.StringUtils;
+import org.apache.http.HttpStatus;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
@@ -65,14 +69,11 @@ public class WebhookEventSender
 {
    private static final QLogger LOG = QLogger.getLogger(WebhookEventSender.class);
 
-   private static final Integer MAX_ALLOWED_ATTEMPTS = 5;
-
-   /////////////////////////////////////////////////////////////////////
-   // given 5 allowed attempts, we only need 4 backoff-minute entries //
-   // but the last one in the array here is what'll be used for the   //
-   // failed-while-on-probation use-case, which is a longer delay.    //
-   /////////////////////////////////////////////////////////////////////
-   private static final long[] BACKOFF_MINUTES = { 1, 5, 15, 60, 4 * 60 };
+   private static Integer   maxAllowedAttempts                 = null;
+   private static Integer   minutesToConsiderLeakedSendAttempt = null;
+   private static Integer[] backoffMinutes                     = null;
+   private static Integer   maxAllowedRateLimitErrors          = null;
+   private static Integer   initialRateLimitBackoffMillis      = null;
 
 
 
@@ -84,7 +85,7 @@ public class WebhookEventSender
       /////////////////////
       // mark as sending //
       /////////////////////
-      Instant nextAttemptTimestamp = Instant.now().plus(10 * 60, ChronoUnit.SECONDS);
+      Instant nextAttemptTimestamp = Instant.now().plus(getMinutesToConsiderLeakedSendAttempt() * 60, ChronoUnit.SECONDS);
       updateWebhookEvent(webhookEvent.getId(), WebhookEventStatus.SENDING, nextAttemptTimestamp, null);
 
       /////////////////
@@ -112,7 +113,7 @@ public class WebhookEventSender
          //////////////////////////////////////////////////////////////////////////////////////////
          // consider if this event is now failed, or if it is retryable (based on # of failures) //
          //////////////////////////////////////////////////////////////////////////////////////////
-         WebhookEventStatus eventStatus = sendLog.getAttemptNo() >= MAX_ALLOWED_ATTEMPTS ? WebhookEventStatus.FAILED : WebhookEventStatus.AWAITING_RETRY;
+         WebhookEventStatus eventStatus = sendLog.getAttemptNo() >= getMaxAllowedAttempts() ? WebhookEventStatus.FAILED : WebhookEventStatus.AWAITING_RETRY;
          if(eventStatus.equals(WebhookEventStatus.FAILED) && WebhookHealthStatus.PROBATION.getId().equals(webhook.getHealthStatusId()))
          {
             String message = "This Webhook Event has had too many failures, but since its Webhook's health status is Probation, its status will be Awaiting Retry instead of Failure.";
@@ -143,8 +144,9 @@ public class WebhookEventSender
     ***************************************************************************/
    public static Instant calculateNextAttemptBackoff(int attemptNumber)
    {
-      int index = Math.min(attemptNumber - 1, BACKOFF_MINUTES.length - 1);
-      return Instant.now().plusSeconds(BACKOFF_MINUTES[index] * 60);
+      Integer[] backoffMinutes = getBackoffMinutes();
+      int       index          = Math.min(attemptNumber - 1, backoffMinutes.length - 1);
+      return Instant.now().plusSeconds(backoffMinutes[index] * 60);
    }
 
 
@@ -188,27 +190,71 @@ public class WebhookEventSender
     ***************************************************************************/
    protected void doPost(WebhookEvent webhookEvent, Webhook webhook, WebhookEventSendLog sendLog) throws WebhookPostException
    {
-      try(CloseableHttpClient httpClient = buildHttpClient())
+      int rateLimitsCaught     = 0;
+      int rateLimitSleepMillis = getInitialRateLimitBackoffMillis();
+
+      ///////////////////////////////////
+      // loop in case of rate limiting //
+      ///////////////////////////////////
+      while(true)
       {
-         HttpPost request = new HttpPost(webhook.getUrl());
-
-         String postBody = getPostBody(webhookEvent);
-         request.setEntity(new StringEntity(postBody, StandardCharsets.UTF_8));
-
-         try(CloseableHttpResponse response = executeHttpRequest(httpClient, request))
+         try(CloseableHttpClient httpClient = buildHttpClient())
          {
-            int statusCode = response.getStatusLine().getStatusCode();
-            sendLog.setHttpStatusCode(statusCode);
+            HttpPost request = new HttpPost(webhook.getUrl());
+            request.setHeader("Content-Type", "application/json");
 
-            if(statusCode < 200 || statusCode >= 300)
+            String postBody = getPostBody(webhookEvent);
+            request.setEntity(new StringEntity(postBody, StandardCharsets.UTF_8));
+
+            try(CloseableHttpResponse response = executeHttpRequest(httpClient, request))
             {
+               int    statusCode     = response.getStatusLine().getStatusCode();
                String responseString = EntityUtils.toString(response.getEntity());
-               if(!StringUtils.hasContent(responseString))
+
+               if(statusCode == HttpStatus.SC_TOO_MANY_REQUESTS) // 429
                {
-                  LOG.warn("Unsuccessful http status code, but no response body returned", logPair("statusCode", statusCode), logPair("webhookId", webhook.getId()));
-                  responseString = "No response body returned";
+                  throw (new WebhookRateLimitException(responseString));
                }
-               throw new WebhookPostException(responseString);
+
+               sendLog.setHttpStatusCode(statusCode);
+
+               if(statusCode < 200 || statusCode >= 300)
+               {
+                  if(!StringUtils.hasContent(responseString))
+                  {
+                     LOG.warn("Unsuccessful http status code, but no response body returned", logPair("statusCode", statusCode), logPair("webhookId", webhook.getId()));
+                     responseString = "No response body returned";
+                  }
+                  throw new WebhookPostException(responseString);
+               }
+
+               ////////////////////////////////////////////
+               // successful exit of the rate-limit loop //
+               ////////////////////////////////////////////
+               break;
+            }
+            catch(WebhookRateLimitException rle)
+            {
+               rateLimitsCaught++;
+               if(rateLimitsCaught > getMaxAllowedRateLimitErrors())
+               {
+                  sendLog.setHttpStatusCode(HttpStatus.SC_TOO_MANY_REQUESTS); // 429
+                  LOG.warn("Giving up webhook post after too many rate limit errors", logPair("webhookId", webhook.getId()), logPair("rateLimitsCaught", rateLimitsCaught), logPair("response", rle.getMessage()));
+                  throw (new WebhookPostException("Giving up after too many rate-limit errors (" + getMaxAllowedRateLimitErrors() + ").  Latest response: " + rle.getMessage()));
+               }
+
+               LOG.info("Caught rate limit.  Will sleep and re-try", logPair("rateLimitsCaught", rateLimitsCaught), logPair("webhookId", webhook.getId()), logPair("sleeping", rateLimitSleepMillis));
+               SleepUtils.sleep(rateLimitSleepMillis, TimeUnit.MILLISECONDS);
+               rateLimitSleepMillis *= 2;
+            }
+            catch(WebhookPostException wpe)
+            {
+               throw (wpe);
+            }
+            catch(Exception e)
+            {
+               LOG.warn("Exception executing http request", e, logPair("webhookId", webhook.getId()));
+               throw (new WebhookPostException(e.getMessage(), e));
             }
          }
          catch(WebhookPostException wpe)
@@ -217,18 +263,9 @@ public class WebhookEventSender
          }
          catch(Exception e)
          {
-            LOG.warn("Exception executing http request", e, logPair("webhookId", webhook.getId()));
+            LOG.warn("Exception building http client", e, logPair("webhookId", webhook.getId()));
             throw (new WebhookPostException(e.getMessage(), e));
          }
-      }
-      catch(WebhookPostException wpe)
-      {
-         throw (wpe);
-      }
-      catch(Exception e)
-      {
-         LOG.warn("Exception building http client", e, logPair("webhookId", webhook.getId()));
-         throw (new WebhookPostException(e.getMessage(), e));
       }
    }
 
@@ -303,6 +340,77 @@ public class WebhookEventSender
             .withValue("id", id)
             .withValue("nextAttemptTimestamp", nextAttemptTimestamp)
             .withValue("eventStatusId", status.getId())));
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   protected int getMaxAllowedRateLimitErrors()
+   {
+      if(maxAllowedRateLimitErrors == null)
+      {
+         maxAllowedRateLimitErrors = WebhooksQBitConfig.getConfigValue(config -> config.getMaxRateLimitRetries());
+      }
+      return (maxAllowedRateLimitErrors);
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   protected int getInitialRateLimitBackoffMillis()
+   {
+      if(initialRateLimitBackoffMillis == null)
+      {
+         initialRateLimitBackoffMillis = WebhooksQBitConfig.getConfigValue(config -> config.getInitialRateLimitBackoffMillis());
+      }
+      return (initialRateLimitBackoffMillis);
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private static Integer getMaxAllowedAttempts()
+   {
+      if(maxAllowedAttempts == null)
+      {
+         maxAllowedAttempts = WebhooksQBitConfig.getConfigValue(config -> config.getMaxSendAttemptsBeforeFailure());
+      }
+      return (maxAllowedAttempts);
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private static Integer getMinutesToConsiderLeakedSendAttempt()
+   {
+      if(minutesToConsiderLeakedSendAttempt == null)
+      {
+         minutesToConsiderLeakedSendAttempt = WebhooksQBitConfig.getConfigValue(config -> config.getMinutesToConsiderLeakedSendAttempt());
+      }
+      return (minutesToConsiderLeakedSendAttempt);
+   }
+
+
+
+   /***************************************************************************
+    *
+    ***************************************************************************/
+   private static Integer[] getBackoffMinutes()
+   {
+      if(backoffMinutes == null)
+      {
+         List<Integer> configValue = WebhooksQBitConfig.getConfigValue(config -> config.getMinutesBetweenRetryAttempts());
+         backoffMinutes = configValue.toArray(new Integer[0]);
+      }
+      return (backoffMinutes);
    }
 
 }

@@ -64,13 +64,23 @@ import com.kingsrook.qqq.backend.core.utils.memoization.Memoization;
 public class WebhookSubscriptionsHelper
 {
    private static final Memoization<String, List<WebhookSubscription>> subscriptionsByEventTypeMemoization = new Memoization<String, List<WebhookSubscription>>()
-      .withTimeout(Duration.of(5, ChronoUnit.MINUTES));
+      .withTimeout(Duration.of(WebhooksQBitConfig.getConfigValue(config -> config.getMemoizationTimeoutMinutes()).longValue(), ChronoUnit.MINUTES));
 
    private static final Memoization<Integer, QRecord> webhookBySubscriptionIdMemoization = new Memoization<Integer, QRecord>()
-      .withTimeout(Duration.of(5, ChronoUnit.MINUTES));
+      .withTimeout(Duration.of(WebhooksQBitConfig.getConfigValue(config -> config.getMemoizationTimeoutMinutes()).longValue(), ChronoUnit.MINUTES));
 
    private static List<String> allAccessSecurityKeysToUse = null;
 
+
+
+   /***************************************************************************
+    **
+    ***************************************************************************/
+   public static void clearMemoizations()
+   {
+      subscriptionsByEventTypeMemoization.clear();
+      webhookBySubscriptionIdMemoization.clear();
+   }
 
 
    /***************************************************************************
@@ -81,12 +91,15 @@ public class WebhookSubscriptionsHelper
       List<WebhookEventType> eventTypes = null;
       for(WebhookEventType webhookEventType : WebhooksRegistry.ofOrWithNew(QContext.getQInstance()).getAllWebhookEventTypes())
       {
-         if(webhookEventType.getCategory().getKind().equals(kind) && Objects.equals(webhookEventType.getTableName(), tableName))
+         if(webhookEventType.getCategory().getKind().equals(kind))
          {
-            if(CollectionUtils.nullSafeHasContents(getSubscriptionsForEventType(webhookEventType)))
+            if(!StringUtils.hasContent(webhookEventType.getTableName()) || Objects.equals(webhookEventType.getTableName(), tableName))
             {
-               eventTypes = Objects.requireNonNullElseGet(eventTypes, ArrayList::new);
-               eventTypes.add(webhookEventType);
+               if(CollectionUtils.nullSafeHasContents(getSubscriptionsForEventType(webhookEventType)))
+               {
+                  eventTypes = Objects.requireNonNullElseGet(eventTypes, ArrayList::new);
+                  eventTypes.add(webhookEventType);
+               }
             }
          }
       }
@@ -117,15 +130,6 @@ public class WebhookSubscriptionsHelper
       }).orElse(Collections.emptyList());
    }
 
-
-
-   /***************************************************************************
-    **
-    ***************************************************************************/
-   public static void clearMemoizations()
-   {
-      subscriptionsByEventTypeMemoization.clear();
-   }
 
 
 
@@ -202,7 +206,7 @@ public class WebhookSubscriptionsHelper
     ***************************************************************************/
    public static boolean doesRecordMatchSubscription(WebhookEventType webhookEventType, WebhookSubscription webhookSubscription, QRecord record, QBackendTransaction transaction) throws QException
    {
-      String         tableName = webhookEventType.getTableName();
+      String         tableName = record.getTableName();
       QTableMetaData table     = QContext.getQInstance().getTable(tableName);
 
       List<RecordSecurityLock> recordSecurityLocks = table.getRecordSecurityLocks();

@@ -22,12 +22,14 @@
 package com.kingsrook.qbits.webhooks.actions;
 
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import com.kingsrook.qbits.webhooks.BaseTest;
 import com.kingsrook.qbits.webhooks.WebhooksTestApplication;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
 import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
+import com.kingsrook.qbits.webhooks.model.WebhooksActionFlags;
 import com.kingsrook.qbits.webhooks.registry.WebhookEventType;
 import com.kingsrook.qqq.backend.core.actions.tables.InsertAction;
 import com.kingsrook.qqq.backend.core.actions.tables.QueryAction;
@@ -37,6 +39,9 @@ import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.logging.QCollectingLogger;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
+import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
+import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterCriteria;
+import com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QueryInput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.update.UpdateInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
@@ -80,20 +85,31 @@ class FirePostUpdateWebhookEventTest extends BaseTest
          ///////////////////////////////////////////////////////////////////
          String eventTypeName = "updatedPerson";
          registerEventType(eventTypeName, WebhookEventCategory.UPDATE, WebhooksTestApplication.TABLE_NAME_PERSON);
-         insert(newWebhookSubscription(eventTypeName));
-         WebhookSubscriptionsHelper.clearMemoizations();
+         Integer subscriptionId = insert(newWebhookSubscription(eventTypeName));
 
          new UpdateAction().execute(new UpdateInput(WebhooksTestApplication.TABLE_NAME_PERSON)
             .withRecord(new QRecord().withValue("id", personId).withValue("firstName", "Bobby")));
          assertThat(collectingLogger.getCollectedMessages())
             .anyMatch(m -> m.getMessage().matches(".*Building webhook event.*"));
+         collectingLogger.clear();
 
          ///////////////////////////////////////////////
          // query to make sure event was inserted too //
          ///////////////////////////////////////////////
-         List<QRecord> insertedEvents = new QueryAction().execute(new QueryInput(WebhookEvent.TABLE_NAME).withIncludeAssociations(true)).getRecords();
+         List<QRecord> insertedEvents = new QueryAction().execute(new QueryInput(WebhookEvent.TABLE_NAME)
+            .withFilter(new QQueryFilter(new QFilterCriteria("webhookSubscriptionId", QCriteriaOperator.EQUALS, subscriptionId)))
+            .withIncludeAssociations(true)).getRecords();
          assertEquals(1, insertedEvents.size());
          assertEquals(personId, insertedEvents.get(0).getValueInteger("eventSourceRecordId"));
+
+         ///////////////////////////////////////
+         // run again, with omit flag present //
+         ///////////////////////////////////////
+         new UpdateAction().execute(new UpdateInput(WebhooksTestApplication.TABLE_NAME_PERSON)
+            .withFlag(WebhooksActionFlags.OMIT_WEBHOOKS)
+            .withRecord(new QRecord().withValue("id", personId).withValue("firstName", "Bobby")));
+         assertThat(collectingLogger.getCollectedMessages())
+            .noneMatch(m -> m.getMessage().matches(".*Building webhook event.*"));
 
          ////////////////////////////////////
          // assert about the contents too! //
@@ -121,9 +137,10 @@ class FirePostUpdateWebhookEventTest extends BaseTest
    @Test
    void testDoesRecordMatchWebhookEventType()
    {
-      WebhookEventType update              = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE);
-      WebhookEventType updateFirstName     = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE_WITH_FIELD).withFieldName("firstName");
-      WebhookEventType updateFirstNameJohn = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE_WITH_VALUE).withFieldName("firstName").withValue("John");
+      WebhookEventType update                   = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE);
+      WebhookEventType updateFirstName          = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE_WITH_FIELD).withFieldName("firstName");
+      WebhookEventType updateFirstNameJohn      = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE_WITH_VALUE).withFieldName("firstName").withValue("John");
+      WebhookEventType updateFirstNameAnyBeatle = new WebhookEventType().withTableName(WebhooksTestApplication.TABLE_NAME_PERSON).withCategory(WebhookEventCategory.UPDATE_WITH_VALUE).withFieldName("firstName").withValue(new ArrayList<>(List.of("John", "George", "Paul", "Ringo")));
 
       ////////////////////////////////////////////////
       // w/ no values, only the generic rule passes //
@@ -132,6 +149,7 @@ class FirePostUpdateWebhookEventTest extends BaseTest
       assertTrue(doesMatch(blankRecord, blankRecord, update));
       assertFalse(doesMatch(blankRecord, blankRecord, updateFirstName));
       assertFalse(doesMatch(blankRecord, blankRecord, updateFirstNameJohn));
+      assertFalse(doesMatch(blankRecord, blankRecord, updateFirstNameAnyBeatle));
 
       /////////////////////////////////////////////////////////////////////////
       // w/ firstname set to Joe, the generic and "any firstname" rules pass //
@@ -140,6 +158,7 @@ class FirePostUpdateWebhookEventTest extends BaseTest
       assertTrue(doesMatch(firstNameJoeRecord, blankRecord, update));
       assertTrue(doesMatch(firstNameJoeRecord, blankRecord, updateFirstName));
       assertFalse(doesMatch(firstNameJoeRecord, blankRecord, updateFirstNameJohn));
+      assertFalse(doesMatch(firstNameJoeRecord, blankRecord, updateFirstNameAnyBeatle));
 
       /////////////////////////////////////////////////////////////////////////////////
       // an update that doesn't change firstName won't fire the "any firstname" rule //
@@ -149,22 +168,34 @@ class FirePostUpdateWebhookEventTest extends BaseTest
       assertTrue(doesMatch(firstNameJoeLastNameSmithRecord, firstNameJoeLastNameJonesRecord, update));
       assertFalse(doesMatch(firstNameJoeLastNameSmithRecord, firstNameJoeLastNameJonesRecord, updateFirstName));
       assertFalse(doesMatch(firstNameJoeLastNameSmithRecord, firstNameJoeLastNameJonesRecord, updateFirstNameJohn));
+      assertFalse(doesMatch(firstNameJoeLastNameSmithRecord, firstNameJoeLastNameJonesRecord, updateFirstNameAnyBeatle));
 
       ///////////////////////////////////////////////////////////////////////
       // an update that only changes last name only fires the generic rule //
       ///////////////////////////////////////////////////////////////////////
       QRecord lastNameJonesRecord = new QRecord().withValue("lastName", "Jones");
       assertTrue(doesMatch(lastNameJonesRecord, blankRecord, update));
+      assertFalse(doesMatch(lastNameJonesRecord, blankRecord, updateFirstName));
       assertFalse(doesMatch(lastNameJonesRecord, blankRecord, updateFirstNameJohn));
-      assertFalse(doesMatch(lastNameJonesRecord, blankRecord, updateFirstNameJohn));
+      assertFalse(doesMatch(lastNameJonesRecord, blankRecord, updateFirstNameAnyBeatle));
 
       ////////////////////////////////////////////////////////////////
-      // changing first name to the target value passes all 3 rules //
+      // changing first name to the target value passes all 4 rules //
       ////////////////////////////////////////////////////////////////
       QRecord firstNameJohnRecord = new QRecord().withValue("firstName", "John");
       assertTrue(doesMatch(firstNameJohnRecord, blankRecord, update));
       assertTrue(doesMatch(firstNameJohnRecord, blankRecord, updateFirstName));
       assertTrue(doesMatch(firstNameJohnRecord, blankRecord, updateFirstNameJohn));
+      assertTrue(doesMatch(firstNameJohnRecord, blankRecord, updateFirstNameAnyBeatle));
+
+      /////////////////////////////////////////////////////////////////////////////////////////
+      // changing first name to the target value from the list but not the single-value rule //
+      /////////////////////////////////////////////////////////////////////////////////////////
+      QRecord firstNameRingoRecord = new QRecord().withValue("firstName", "Ringo");
+      assertTrue(doesMatch(firstNameRingoRecord, blankRecord, update));
+      assertTrue(doesMatch(firstNameRingoRecord, blankRecord, updateFirstName));
+      assertFalse(doesMatch(firstNameRingoRecord, blankRecord, updateFirstNameJohn));
+      assertTrue(doesMatch(firstNameRingoRecord, blankRecord, updateFirstNameAnyBeatle));
 
       ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
       // an update that doesn't change firstName (even if it has the target value) won't fire the "firstname John" rule //
@@ -174,6 +205,7 @@ class FirePostUpdateWebhookEventTest extends BaseTest
       assertTrue(doesMatch(firstNameJohnRecordLastNameSmithRecord, firstNameJohnRecordLastNameJonesRecord, update));
       assertFalse(doesMatch(firstNameJohnRecordLastNameSmithRecord, firstNameJohnRecordLastNameJonesRecord, updateFirstName));
       assertFalse(doesMatch(firstNameJohnRecordLastNameSmithRecord, firstNameJohnRecordLastNameJonesRecord, updateFirstNameJohn));
+      assertFalse(doesMatch(firstNameJohnRecordLastNameSmithRecord, firstNameJohnRecordLastNameJonesRecord, updateFirstNameAnyBeatle));
 
       //////////////////////////////////////////////////////////////
       // without old-record, always fail the value-checking rules //
@@ -181,6 +213,7 @@ class FirePostUpdateWebhookEventTest extends BaseTest
       assertTrue(doesMatch(firstNameJohnRecord, null, update));
       assertFalse(doesMatch(firstNameJohnRecord, null, updateFirstName));
       assertFalse(doesMatch(firstNameJohnRecord, null, updateFirstNameJohn));
+      assertFalse(doesMatch(firstNameJohnRecord, null, updateFirstNameAnyBeatle));
    }
 
 
@@ -191,7 +224,7 @@ class FirePostUpdateWebhookEventTest extends BaseTest
    private boolean doesMatch(QRecord record, QRecord oldRecord, WebhookEventType webhookEventType)
    {
       FirePostUpdateWebhookEvent firePostUpdateWebhookEvent = new FirePostUpdateWebhookEvent();
-      QFieldMetaData field = QContext.getQInstance().getTable(webhookEventType.getTableName()).getFields().get(webhookEventType.getFieldName());
+      QFieldMetaData             field                      = QContext.getQInstance().getTable(webhookEventType.getTableName()).getFields().get(webhookEventType.getFieldName());
       return firePostUpdateWebhookEvent.doesRecordMatchWebhookEventType(record, Optional.ofNullable(oldRecord), webhookEventType, field);
    }
 }

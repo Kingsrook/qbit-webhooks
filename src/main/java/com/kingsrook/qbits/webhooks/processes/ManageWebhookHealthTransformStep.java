@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
 import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookEventSendLog;
 import com.kingsrook.qbits.webhooks.model.WebhookHealthStatus;
@@ -118,7 +119,9 @@ public class ManageWebhookHealthTransformStep extends AbstractTransformStep
          return;
       }
 
-      Instant limitTime = Instant.now().minus(1, ChronoUnit.HOURS);
+      Integer timeoutMinutes = WebhooksQBitConfig.getConfigValue(config -> config.getUnhealthyToProbationTimeoutMinutes());
+      Instant limitTime = Instant.now().minus(timeoutMinutes, ChronoUnit.MINUTES);
+
       for(Webhook webhook : unhealthy)
       {
          List<WebhookEventSendLog> eventLogs = new QueryAction().execute(new QueryInput(WebhookEventSendLog.TABLE_NAME).withFilter(new QQueryFilter()

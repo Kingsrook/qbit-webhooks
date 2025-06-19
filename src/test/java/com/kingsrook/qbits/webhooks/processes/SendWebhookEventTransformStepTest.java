@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 import com.kingsrook.qbits.webhooks.BaseTest;
+import com.kingsrook.qbits.webhooks.WebhooksTestApplication;
 import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookActiveStatus;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
@@ -50,8 +51,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *******************************************************************************/
 class SendWebhookEventTransformStepTest extends BaseTest
 {
-   private final static String EVENT_TYPE_NAME = "insert-person";
-
 
 
    /*******************************************************************************
@@ -117,7 +116,7 @@ class SendWebhookEventTransformStepTest extends BaseTest
       }
       QRecord insertedWebhook = new InsertAction().execute(new InsertInput(Webhook.TABLE_NAME).withRecordEntities(List.of(webhook))).getRecords().get(0);
 
-      WebhookSubscription subscription = newWebhookSubscription(EVENT_TYPE_NAME)
+      WebhookSubscription subscription = newWebhookSubscription(WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME)
          .withWebhookId(insertedWebhook.getValueInteger("id"));
       if(subscriptionCustomizer != null)
       {
@@ -125,7 +124,7 @@ class SendWebhookEventTransformStepTest extends BaseTest
       }
       WebhookSubscription insertedSubscription = new WebhookSubscription(new InsertAction().execute(new InsertInput(WebhookSubscription.TABLE_NAME).withRecordEntities(List.of(subscription))).getRecords().get(0));
 
-      WebhookEvent webhookEvent = newWebhookEvent(insertedSubscription, EVENT_TYPE_NAME);
+      WebhookEvent webhookEvent = newWebhookEvent(insertedSubscription, WebhooksTestApplication.PERSON_INSERTED_EVENT_TYPE_NAME);
       if(eventCustomizer != null)
       {
          eventCustomizer.accept(webhookEvent);

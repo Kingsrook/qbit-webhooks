@@ -96,10 +96,10 @@ public class BaseTest
    /***************************************************************************
     **
     ***************************************************************************/
-   public static void registerEventType(String name, WebhookEventCategory category) throws QException
+   public static void registerAdHocEventType(String name) throws QException
    {
       WebhooksRegistry.ofOrWithNew(QContext.getQInstance()).registerWebhookEventType(new WebhookEventType()
-         .withName(name).withCategory(category));
+         .withName(name).withCategory(WebhookEventCategory.AD_HOC));
    }
 
 

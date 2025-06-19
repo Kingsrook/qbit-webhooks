@@ -19,14 +19,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.kingsrook.qbits.webhooks.actions;
+package com.kingsrook.qbits.webhooks.model;
+
+
+import com.kingsrook.qqq.backend.core.model.actions.tables.ActionFlag;
 
 
 /*******************************************************************************
- ** Default implementation of WebhookEventTypeCustomizerInterface - just lets
- ** all the default methods from the interface run.
+ ** flags that can be put in an insert/update/delete event, to control webhook
+ ** events.
  *******************************************************************************/
-public class DefaultWebhookEventTypeCustomizer implements WebhookEventTypeCustomizerInterface
+public enum WebhooksActionFlags implements ActionFlag
 {
-
+   /***************************************************************************
+    ** cause webhook events to not be fired for the action.
+    ***************************************************************************/
+   OMIT_WEBHOOKS
 }

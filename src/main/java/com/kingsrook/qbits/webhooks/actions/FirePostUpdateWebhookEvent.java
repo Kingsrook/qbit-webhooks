@@ -27,19 +27,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
+import com.kingsrook.qbits.webhooks.model.WebhooksActionFlags;
 import com.kingsrook.qbits.webhooks.registry.WebhookEventType;
 import com.kingsrook.qqq.backend.core.actions.customizers.OldRecordHelper;
 import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizerInterface;
-import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.update.UpdateInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
-import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
 import com.kingsrook.qqq.backend.core.utils.CollectionUtils;
-import com.kingsrook.qqq.backend.core.utils.StringUtils;
-import com.kingsrook.qqq.backend.core.utils.ValueUtils;
 import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
 
 
@@ -58,6 +55,12 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
    @Override
    public List<QRecord> postUpdate(UpdateInput updateInput, List<QRecord> records, Optional<List<QRecord>> oldRecordList) throws QException
    {
+      if(updateInput.hasFlag(WebhooksActionFlags.OMIT_WEBHOOKS))
+      {
+         LOG.debug("Requested to omit webhooks after update; returning early.", logPair("tableName", updateInput.getTableName()));
+         return (records);
+      }
+
       List<WebhookEventType> webhookEventTypes = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.UPDATE, updateInput.getTableName());
       if(CollectionUtils.nullSafeIsEmpty(webhookEventTypes))
       {
@@ -69,7 +72,7 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
       WebhookEventBuilder webhookEventBuilder = null;
       for(WebhookEventType webhookEventType : webhookEventTypes)
       {
-         QFieldMetaData field = getQFieldMetaData(updateInput, webhookEventType);
+         QFieldMetaData field = FirePostInsertOrUpdateWebhookEventUtil.getQFieldMetaData(webhookEventType);
          for(QRecord record : records)
          {
             if(CollectionUtils.nullSafeHasContents(record.getErrors()))
@@ -103,25 +106,6 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
    /***************************************************************************
     **
     ***************************************************************************/
-   private static QFieldMetaData getQFieldMetaData(UpdateInput updateInput, WebhookEventType webhookEventType)
-   {
-      QFieldMetaData field = null;
-      if(StringUtils.hasContent(webhookEventType.getFieldName()))
-      {
-         field = QContext.getQInstance().getTable(webhookEventType.getTableName()).getFields().get(webhookEventType.getFieldName());
-         if(field == null)
-         {
-            LOG.warn("No field found for webhook event type", logPair("webhookEventType", webhookEventType), logPair("tableName", updateInput.getTableName()), logPair("fieldName", webhookEventType.getFieldName()));
-         }
-      }
-      return field;
-   }
-
-
-
-   /***************************************************************************
-    **
-    ***************************************************************************/
    boolean doesRecordMatchWebhookEventType(QRecord record, Optional<QRecord> optionalOldRecord, WebhookEventType webhookEventType, QFieldMetaData field)
    {
       switch(webhookEventType.getCategory())
@@ -137,8 +121,8 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
                return (false);
             }
 
-            Serializable newValue = getValue(record, field);
-            Serializable oldValue = getValue(optionalOldRecord.get(), field);
+            Serializable newValue = FirePostInsertOrUpdateWebhookEventUtil.getValue(record, field);
+            Serializable oldValue = FirePostInsertOrUpdateWebhookEventUtil.getValue(optionalOldRecord.get(), field);
             if(!Objects.equals(newValue, oldValue))
             {
                return (true);
@@ -151,10 +135,9 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
                return (false);
             }
 
-            Serializable newValue   = getValue(record, field);
-            Serializable oldValue   = getValue(optionalOldRecord.get(), field);
-            Serializable eventValue = ValueUtils.getValueAsFieldType(field == null ? QFieldType.STRING : field.getType(), webhookEventType.getValue());
-            if(!Objects.equals(newValue, oldValue) && Objects.equals(newValue, eventValue))
+            Serializable newValue = FirePostInsertOrUpdateWebhookEventUtil.getValue(record, field);
+            Serializable oldValue = FirePostInsertOrUpdateWebhookEventUtil.getValue(optionalOldRecord.get(), field);
+            if(!Objects.equals(newValue, oldValue) && FirePostInsertOrUpdateWebhookEventUtil.doesNewValueMatchEventValue(webhookEventType, field, newValue))
             {
                return (true);
             }
@@ -166,21 +149,6 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
       }
 
       return (false);
-   }
-
-
-
-   /***************************************************************************
-    *
-    ***************************************************************************/
-   private Serializable getValue(QRecord record, QFieldMetaData field)
-   {
-      if(field == null)
-      {
-         return (null);
-      }
-
-      return ValueUtils.getValueAsFieldType(field.getType(), record.getValue(field.getName()));
    }
 
 }

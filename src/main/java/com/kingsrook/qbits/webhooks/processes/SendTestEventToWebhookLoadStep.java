@@ -22,6 +22,7 @@
 package com.kingsrook.qbits.webhooks.processes;
 
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import com.kingsrook.qbits.webhooks.actions.WebhookEventSender;
@@ -29,6 +30,8 @@ import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
 import com.kingsrook.qbits.webhooks.model.WebhookEventContent;
 import com.kingsrook.qbits.webhooks.model.WebhookEventSendLog;
+import com.kingsrook.qbits.webhooks.model.WebhookHealthStatus;
+import com.kingsrook.qqq.backend.core.actions.tables.UpdateAction;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLine;
@@ -36,9 +39,12 @@ import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLine
 import com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepInput;
 import com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepOutput;
 import com.kingsrook.qqq.backend.core.model.actions.processes.Status;
+import com.kingsrook.qqq.backend.core.model.actions.tables.update.UpdateInput;
+import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.processes.implementations.etl.streamedwithfrontend.AbstractLoadStep;
 import com.kingsrook.qqq.backend.core.processes.implementations.etl.streamedwithfrontend.ProcessSummaryProviderInterface;
 import com.kingsrook.qqq.backend.core.processes.implementations.general.ProcessSummaryWarningsAndErrorsRollup;
+import org.apache.commons.lang3.BooleanUtils;
 
 
 /*******************************************************************************
@@ -50,6 +56,11 @@ public class SendTestEventToWebhookLoadStep extends AbstractLoadStep implements 
 
    private ProcessSummaryLine okLine = new ProcessSummaryLine(Status.OK)
       .withMessageSuffix(" delivered successfully")
+      .withSingularPastMessage("was")
+      .withPluralPastMessage("were");
+
+   private ProcessSummaryLine updatedToProbationLine = new ProcessSummaryLine(Status.INFO)
+      .withMessageSuffix(" updated from Unhealthy to Probation")
       .withSingularPastMessage("was")
       .withPluralPastMessage("were");
 
@@ -72,6 +83,7 @@ public class SendTestEventToWebhookLoadStep extends AbstractLoadStep implements 
    {
       ArrayList<ProcessSummaryLineInterface> rs = new ArrayList<>();
       okLine.addSelfToListIfAnyCount(rs);
+      updatedToProbationLine.addSelfToListIfAnyCount(rs);
       errorsRollup.addToList(rs);
       return rs;
    }
@@ -84,6 +96,9 @@ public class SendTestEventToWebhookLoadStep extends AbstractLoadStep implements 
    @Override
    public void runOnePage(RunBackendStepInput runBackendStepInput, RunBackendStepOutput runBackendStepOutput) throws QException
    {
+      boolean       uponSuccessUpdateUnhealthyWebhooksToProbation = BooleanUtils.isTrue(runBackendStepInput.getValueBoolean("uponSuccessUpdateUnhealthyWebhooksToProbation"));
+      List<QRecord> webhooksToUpdate                              = new ArrayList<>();
+
       for(Webhook webhook : runBackendStepInput.getRecordsAsEntities(Webhook.class))
       {
          WebhookEventSendLog sendLog;
@@ -92,8 +107,18 @@ public class SendTestEventToWebhookLoadStep extends AbstractLoadStep implements 
             WebhookEvent event = new WebhookEvent().withContent(List.of(new WebhookEventContent()
                .withPostBody("""
                   {
-                     "testEvent": true
-                  }""")
+                    "webhookEventDetails":
+                    {
+                      "webhookEventTypeName": "testEvent",
+                      "eventTimestamp": "%s",
+                      "tableName": null,
+                      "apiName": null,
+                      "apiVersion": null
+                    },
+                    "record":
+                    {
+                    }
+                  }""".formatted(Instant.now().toString()))
             ));
 
             sendLog = getWebhookEventSender().post(event, webhook);
@@ -107,6 +132,12 @@ public class SendTestEventToWebhookLoadStep extends AbstractLoadStep implements 
 
          if(sendLog.getSuccessful())
          {
+            if(WebhookHealthStatus.UNHEALTHY.getId().equals(webhook.getHealthStatusId()))
+            {
+               webhooksToUpdate.add(new QRecord().withValue("id", webhook.getId()).withValue("healthStatusId", WebhookHealthStatus.PROBATION.getId()));
+               updatedToProbationLine.incrementCountAndAddPrimaryKey(webhook.getId());
+            }
+
             okLine.incrementCountAndAddPrimaryKey(webhook.getId());
          }
          else
@@ -120,6 +151,11 @@ public class SendTestEventToWebhookLoadStep extends AbstractLoadStep implements 
                errorsRollup.addError(sendLog.getErrorMessage(), webhook.getId());
             }
          }
+      }
+
+      if(uponSuccessUpdateUnhealthyWebhooksToProbation && !webhooksToUpdate.isEmpty())
+      {
+         new UpdateAction().execute(new UpdateInput(Webhook.TABLE_NAME).withRecords(webhooksToUpdate));
       }
    }
 

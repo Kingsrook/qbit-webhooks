@@ -25,11 +25,8 @@ package com.kingsrook.qbits.webhooks.processes;
 import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
 import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookActiveStatus;
-import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
-import com.kingsrook.qqq.backend.core.model.metadata.processes.QProcessMetaData;
-import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitConfig;
 import com.kingsrook.qqq.backend.core.model.scheduledjobs.ScheduledJob;
 import com.kingsrook.qqq.backend.core.scheduler.processes.AbstractRecordSyncToScheduledJobProcess;
 import com.kingsrook.qqq.backend.core.utils.StringUtils;
@@ -47,19 +44,14 @@ public class SyncWebhookScheduledJobProcess extends AbstractRecordSyncToSchedule
    @Override
    protected ScheduledJob customizeScheduledJob(ScheduledJob scheduledJob, QRecord sourceRecord) throws QException
    {
-      scheduledJob.setRepeatSeconds(60);
+      scheduledJob.setRepeatSeconds(WebhooksQBitConfig.getConfigValue(config -> config.getSendWebhookEventProcessRepeatSeconds()));
 
       boolean isActive = (WebhookActiveStatus.ACTIVE.getId().equals(sourceRecord.getValueInteger("activeStatusId")));
       scheduledJob.setIsActive(isActive);
 
       if(!StringUtils.hasContent(scheduledJob.getSchedulerName()))
       {
-         QProcessMetaData process          = QContext.getQInstance().getProcess(SyncWebhookScheduledJobProcess.class.getSimpleName());
-         QBitConfig       sourceQBitConfig = process.getSourceQBitConfig();
-         if(sourceQBitConfig instanceof WebhooksQBitConfig webhooksQBitConfig)
-         {
-            scheduledJob.setSchedulerName(webhooksQBitConfig.getSchedulerName());
-         }
+         scheduledJob.setSchedulerName(WebhooksQBitConfig.getConfigValue(config -> config.getSchedulerName()));
       }
 
       return (scheduledJob);

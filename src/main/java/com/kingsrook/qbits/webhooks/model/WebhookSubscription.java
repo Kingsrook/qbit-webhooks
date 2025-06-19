@@ -26,14 +26,17 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import com.kingsrook.qbits.webhooks.WebhooksQBitConfig;
+import com.kingsrook.qbits.webhooks.actions.ClearWebhookSubscriptionHelperMemoizationsTableCustomizer;
 import com.kingsrook.qbits.webhooks.registry.WebhookEventTypePossibleValueSource;
 import com.kingsrook.qqq.api.model.metadata.ApiInstanceMetaDataProvider;
+import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizers;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterOrderBy;
 import com.kingsrook.qqq.backend.core.model.data.QField;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.data.QRecordEntity;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
+import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
 import com.kingsrook.qqq.backend.core.model.metadata.dashboard.QWidgetMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.AdornmentType;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.FieldAdornment;
@@ -133,6 +136,14 @@ public class WebhookSubscription extends QRecordEntity
             .withValues(AdornmentType.ChipValues.iconAndColorValues(WebhookActiveStatus.DISABLED, "not_interested", AdornmentType.ChipValues.COLOR_ERROR)));
 
          // todo - if adding filters in future table.getField("queryFilterJson").withBehavior(new FilterJsonFieldDisplayValueFormatter());
+
+         ///////////////////////////////////////////////////////////////////////////////////////////
+         // to clear the webhookSubscriptionHelper class's memoizations post insert/update/delete //
+         ///////////////////////////////////////////////////////////////////////////////////////////
+         QCodeReference clearWebhookSubscriptionHerlpMemoizations = new QCodeReference(ClearWebhookSubscriptionHelperMemoizationsTableCustomizer.class);
+         table.withCustomizer(TableCustomizers.POST_INSERT_RECORD, clearWebhookSubscriptionHerlpMemoizations);
+         table.withCustomizer(TableCustomizers.POST_UPDATE_RECORD, clearWebhookSubscriptionHerlpMemoizations);
+         table.withCustomizer(TableCustomizers.POST_DELETE_RECORD, clearWebhookSubscriptionHerlpMemoizations);
 
          return (table);
       }

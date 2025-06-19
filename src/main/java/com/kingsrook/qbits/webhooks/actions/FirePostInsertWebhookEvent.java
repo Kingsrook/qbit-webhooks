@@ -24,16 +24,18 @@ package com.kingsrook.qbits.webhooks.actions;
 
 import java.io.Serializable;
 import java.util.List;
-import java.util.Objects;
 import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
+import com.kingsrook.qbits.webhooks.model.WebhooksActionFlags;
 import com.kingsrook.qbits.webhooks.registry.WebhookEventType;
 import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizerInterface;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
+import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
 import com.kingsrook.qqq.backend.core.utils.CollectionUtils;
 import com.kingsrook.qqq.backend.core.utils.ValueUtils;
+import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
 
 
 /*******************************************************************************
@@ -51,6 +53,12 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
    @Override
    public List<QRecord> postInsert(InsertInput insertInput, List<QRecord> records) throws QException
    {
+      if(insertInput.hasFlag(WebhooksActionFlags.OMIT_WEBHOOKS))
+      {
+         LOG.debug("Requested to omit webhooks after inert; returning early.", logPair("tableName", insertInput.getTableName()));
+         return (records);
+      }
+
       List<WebhookEventType> webhookEventTypes = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.INSERT, insertInput.getTableName());
       if(CollectionUtils.nullSafeIsEmpty(webhookEventTypes))
       {
@@ -60,6 +68,7 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
       WebhookEventBuilder webhookEventBuilder = null;
       for(WebhookEventType webhookEventType : webhookEventTypes)
       {
+         QFieldMetaData field = FirePostInsertOrUpdateWebhookEventUtil.getQFieldMetaData(webhookEventType);
          for(QRecord record : records)
          {
             if(CollectionUtils.nullSafeHasContents(record.getErrors()))
@@ -72,7 +81,7 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
                record.setTableName(insertInput.getTableName());
             }
 
-            if(doesRecordMatchWebhookEventType(record, webhookEventType))
+            if(doesRecordMatchWebhookEventType(record, webhookEventType, field))
             {
                webhookEventBuilder = FirePostInsertOrUpdateWebhookEventUtil.processSubscriptions(insertInput.getTableName(), webhookEventType, record, webhookEventBuilder, insertInput.getTransaction());
             }
@@ -92,7 +101,7 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
    /***************************************************************************
     **
     ***************************************************************************/
-   boolean doesRecordMatchWebhookEventType(QRecord record, WebhookEventType webhookEventType)
+   boolean doesRecordMatchWebhookEventType(QRecord record, WebhookEventType webhookEventType, QFieldMetaData field)
    {
       switch(webhookEventType.getCategory())
       {
@@ -102,7 +111,7 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
          }
          case INSERT_WITH_FIELD ->
          {
-            Serializable value = record.getValue(webhookEventType.getFieldName());
+            Serializable value = FirePostInsertOrUpdateWebhookEventUtil.getValue(record, field);
             if(value != null && !"".equals(ValueUtils.getValueAsString(value)))
             {
                return (true);
@@ -110,8 +119,9 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
          }
          case INSERT_WITH_VALUE ->
          {
-            Serializable value = record.getValue(webhookEventType.getFieldName());
-            if(Objects.equals(webhookEventType.getValue(), value))
+            Serializable value = FirePostInsertOrUpdateWebhookEventUtil.getValue(record, field);
+
+            if(FirePostInsertOrUpdateWebhookEventUtil.doesNewValueMatchEventValue(webhookEventType, field, value))
             {
                return (true);
             }

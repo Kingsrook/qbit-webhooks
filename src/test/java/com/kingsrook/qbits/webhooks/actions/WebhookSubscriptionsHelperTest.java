@@ -66,29 +66,13 @@ class WebhookSubscriptionsHelperTest extends BaseTest
       assertThat(getEventTypes(Kind.UPDATE, personTableName)).isNullOrEmpty();
       assertThat(getEventTypes(Kind.AD_HOC, personTableName)).isNullOrEmpty();
 
-      /////////////////////////////////////////////////////
-      // insert a sub - but memoized, so still all empty //
-      /////////////////////////////////////////////////////
-      insert(newWebhookSubscription(insertedPersonEventName));
-      assertThat(getEventTypes(Kind.INSERT, personTableName)).isNullOrEmpty();
-      assertThat(getEventTypes(Kind.UPDATE, personTableName)).isNullOrEmpty();
-      assertThat(getEventTypes(Kind.AD_HOC, personTableName)).isNullOrEmpty();
-
-      ///////////////////////////////////////////////////
-      // clear memoization, and then we should find it //
-      ///////////////////////////////////////////////////
-      WebhookSubscriptionsHelper.clearMemoizations();
-      assertThat(getEventTypes(Kind.INSERT, personTableName)).hasSize(1);
-      assertThat(getEventTypes(Kind.UPDATE, personTableName)).isNullOrEmpty();
-      assertThat(getEventTypes(Kind.AD_HOC, personTableName)).isNullOrEmpty();
-
       //////////////////////////////////////////////////////////////
       // add a second insert event with a sub on the person table //
       //////////////////////////////////////////////////////////////
       registerEventType(insertedPersonWithFirstNameEventName, WebhookEventCategory.INSERT, personTableName, "firstName");
       insert(newWebhookSubscription(insertedPersonWithFirstNameEventName));
       WebhookSubscriptionsHelper.clearMemoizations();
-      assertThat(getEventTypes(Kind.INSERT, personTableName)).hasSize(2);
+      assertThat(getEventTypes(Kind.INSERT, personTableName)).hasSize(1);
       assertThat(getEventTypes(Kind.UPDATE, personTableName)).isNullOrEmpty();
       assertThat(getEventTypes(Kind.AD_HOC, personTableName)).isNullOrEmpty();
 
@@ -98,7 +82,7 @@ class WebhookSubscriptionsHelperTest extends BaseTest
       registerEventType(insertedPlaceEventName, WebhookEventCategory.INSERT, placeTableName);
       insert(newWebhookSubscription(insertedPlaceEventName));
       WebhookSubscriptionsHelper.clearMemoizations();
-      assertThat(getEventTypes(Kind.INSERT, personTableName)).hasSize(2);
+      assertThat(getEventTypes(Kind.INSERT, personTableName)).hasSize(1);
       assertThat(getEventTypes(Kind.INSERT, placeTableName)).hasSize(1);
    }
 

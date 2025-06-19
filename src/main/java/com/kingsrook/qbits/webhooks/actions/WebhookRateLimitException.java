@@ -23,10 +23,16 @@ package com.kingsrook.qbits.webhooks.actions;
 
 
 /*******************************************************************************
- ** Default implementation of WebhookEventTypeCustomizerInterface - just lets
- ** all the default methods from the interface run.
+ **
  *******************************************************************************/
-public class DefaultWebhookEventTypeCustomizer implements WebhookEventTypeCustomizerInterface
+public class WebhookRateLimitException extends Exception
 {
-
+   /*******************************************************************************
+    ** Constructor
+    **
+    *******************************************************************************/
+   public WebhookRateLimitException(String message)
+   {
+      super(message);
+   }
 }
