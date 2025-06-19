@@ -57,7 +57,7 @@ public class WebhooksQBitProducer implements QBitMetaDataProducer<WebhooksQBitCo
       QBitMetaData qBitMetaData = new QBitMetaData()
          .withGroupId("com.kingsrook.qbits")
          .withArtifactId("webhooks")
-         .withVersion("0.1.0")
+         .withVersion("0.1.1")
          .withNamespace(getNamespace())
          .withConfig(getQBitConfig());
       return qBitMetaData;
