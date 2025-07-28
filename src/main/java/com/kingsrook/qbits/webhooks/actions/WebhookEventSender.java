@@ -94,46 +94,48 @@ public class WebhookEventSender
       WebhookEventSendLog sendLog = post(webhookEvent, webhook);
       sendLog.setAttemptNo(sendLogs.size() + 1);
 
-      InsertInput         insertSendLogInput = new InsertInput(WebhookEventSendLog.TABLE_NAME).withRecordEntity(sendLog);
-      QBackendTransaction transaction        = QBackendTransaction.openFor(insertSendLogInput);
-      insertSendLogInput.setTransaction(transaction);
+      InsertInput insertSendLogInput = new InsertInput(WebhookEventSendLog.TABLE_NAME).withRecordEntity(sendLog);
 
-      if(sendLog.getSuccessful())
+      try(QBackendTransaction transaction = QBackendTransaction.openFor(insertSendLogInput))
       {
-         ///////////////////////
-         // mark as delivered //
-         ///////////////////////
-         new InsertAction().execute(insertSendLogInput);
-         updateWebhookEvent(webhookEvent.getId(), WebhookEventStatus.DELIVERED, null, transaction);
-         transaction.commit();
-         return (true);
-      }
-      else
-      {
-         //////////////////////////////////////////////////////////////////////////////////////////
-         // consider if this event is now failed, or if it is retryable (based on # of failures) //
-         //////////////////////////////////////////////////////////////////////////////////////////
-         WebhookEventStatus eventStatus = sendLog.getAttemptNo() >= getMaxAllowedAttempts() ? WebhookEventStatus.FAILED : WebhookEventStatus.AWAITING_RETRY;
-         if(eventStatus.equals(WebhookEventStatus.FAILED) && WebhookHealthStatus.PROBATION.getId().equals(webhook.getHealthStatusId()))
+         insertSendLogInput.setTransaction(transaction);
+         if(sendLog.getSuccessful())
          {
-            String message = "This Webhook Event has had too many failures, but since its Webhook's health status is Probation, its status will be Awaiting Retry instead of Failure.";
-            AuditAction.execute(WebhookEvent.TABLE_NAME, webhookEvent.getId(), null, message);
-            eventStatus = WebhookEventStatus.AWAITING_RETRY;
+            ///////////////////////
+            // mark as delivered //
+            ///////////////////////
+            new InsertAction().execute(insertSendLogInput);
+            updateWebhookEvent(webhookEvent.getId(), WebhookEventStatus.DELIVERED, null, transaction);
+            transaction.commit();
+            return (true);
          }
-
-         ///////////////////////////////////////////////////////////////////////
-         // set the next-send time based on how many attempts there have been //
-         ///////////////////////////////////////////////////////////////////////
-         nextAttemptTimestamp = calculateNextAttemptBackoff(sendLog.getAttemptNo());
-         if(eventStatus.equals(WebhookEventStatus.FAILED))
+         else
          {
-            nextAttemptTimestamp = null;
-         }
+            //////////////////////////////////////////////////////////////////////////////////////////
+            // consider if this event is now failed, or if it is retryable (based on # of failures) //
+            //////////////////////////////////////////////////////////////////////////////////////////
+            WebhookEventStatus eventStatus = sendLog.getAttemptNo() >= getMaxAllowedAttempts() ? WebhookEventStatus.FAILED : WebhookEventStatus.AWAITING_RETRY;
+            if(eventStatus.equals(WebhookEventStatus.FAILED) && WebhookHealthStatus.PROBATION.getId().equals(webhook.getHealthStatusId()))
+            {
+               String message = "This Webhook Event has had too many failures, but since its Webhook's health status is Probation, its status will be Awaiting Retry instead of Failure.";
+               AuditAction.execute(WebhookEvent.TABLE_NAME, webhookEvent.getId(), null, message);
+               eventStatus = WebhookEventStatus.AWAITING_RETRY;
+            }
 
-         new InsertAction().execute(insertSendLogInput);
-         updateWebhookEvent(webhookEvent.getId(), eventStatus, nextAttemptTimestamp, transaction);
-         transaction.commit();
-         return (false);
+            ///////////////////////////////////////////////////////////////////////
+            // set the next-send time based on how many attempts there have been //
+            ///////////////////////////////////////////////////////////////////////
+            nextAttemptTimestamp = calculateNextAttemptBackoff(sendLog.getAttemptNo());
+            if(eventStatus.equals(WebhookEventStatus.FAILED))
+            {
+               nextAttemptTimestamp = null;
+            }
+
+            new InsertAction().execute(insertSendLogInput);
+            updateWebhookEvent(webhookEvent.getId(), eventStatus, nextAttemptTimestamp, transaction);
+            transaction.commit();
+            return (false);
+         }
       }
    }
 
