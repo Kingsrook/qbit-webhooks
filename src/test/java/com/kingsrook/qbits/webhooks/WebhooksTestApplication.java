@@ -46,6 +46,8 @@ import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
 import com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.layout.QAppSection;
 import com.kingsrook.qqq.backend.core.model.metadata.layout.QIcon;
+import com.kingsrook.qqq.backend.core.model.metadata.security.QSecurityKeyType;
+import com.kingsrook.qqq.backend.core.model.metadata.security.RecordSecurityLock;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 import com.kingsrook.qqq.backend.core.model.tables.QQQTablesMetaDataProvider;
 import com.kingsrook.qqq.backend.core.modules.backend.implementations.memory.MemoryBackendModule;
@@ -58,12 +60,16 @@ public class WebhooksTestApplication extends AbstractQQQApplication
 {
    public static final String MEMORY_BACKEND_NAME = "memory";
    public static final String TABLE_NAME_PERSON   = "person";
+   public static final String TABLE_NAME_ORDER    = "order";
 
    public static final String API_NAME = "test-api";
    public static final String API_PATH = "/test-api/";
    public static final String API_V1   = "v1";
 
    public static final String PERSON_INSERTED_EVENT_TYPE_NAME = "person.inserted";
+
+   public static final String STORE_ID_ALL_ACCESS_KEY = "storeIdAllAccess";
+   public static final String STORE_ID_KEY            = "storeId";
 
 
 
@@ -91,6 +97,8 @@ public class WebhooksTestApplication extends AbstractQQQApplication
       //////////////////////
       WebhooksQBitProducer producer = new WebhooksQBitProducer()
          .withQBitConfig(new WebhooksQBitConfig()
+            .withSecurityFields(List.of(new QFieldMetaData("storeId", QFieldType.INTEGER)))
+            .withRecordSecurityLocks(List.of(new RecordSecurityLock().withFieldName("storeId").withSecurityKeyType(STORE_ID_KEY)))
             .withDefaultBackendNameForTables(MEMORY_BACKEND_NAME));
 
       MetaDataProducerMultiOutput allQBitMetaData = producer.produce(qInstance);
@@ -123,9 +131,22 @@ public class WebhooksTestApplication extends AbstractQQQApplication
          .withField(new QFieldMetaData("firstName", QFieldType.STRING).withIsEditable(true))
          .withField(new QFieldMetaData("lastName", QFieldType.STRING).withIsEditable(true))
          .withSupplementalMetaData(new ApiTableMetaDataContainer().withApiTableMetaData(API_NAME, new ApiTableMetaData()
-            .withInitialVersion(API_V1)
-         ))
+            .withInitialVersion(API_V1)))
       );
+
+      qInstance.addTable(new QTableMetaData()
+         .withName(TABLE_NAME_ORDER)
+         .withBackendName(MEMORY_BACKEND_NAME)
+         .withPrimaryKeyField("id")
+         .withField(new QFieldMetaData("id", QFieldType.INTEGER).withIsEditable(false))
+         .withField(new QFieldMetaData("orderNo", QFieldType.STRING).withIsEditable(true))
+         .withField(new QFieldMetaData("storeId", QFieldType.INTEGER).withIsEditable(true))
+         .withRecordSecurityLock(new RecordSecurityLock().withFieldName("storeId").withSecurityKeyType(STORE_ID_KEY))
+         .withSupplementalMetaData(new ApiTableMetaDataContainer().withApiTableMetaData(API_NAME, new ApiTableMetaData()
+            .withInitialVersion(API_V1)))
+      );
+
+      qInstance.addSecurityKeyType(new QSecurityKeyType().withName(STORE_ID_KEY).withAllAccessKeyName(STORE_ID_ALL_ACCESS_KEY));
 
       ///////////////////////////////////////////
       // turn off audits (why on by default??) //

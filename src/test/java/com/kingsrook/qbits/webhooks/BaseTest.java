@@ -26,6 +26,7 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.Collectors;
+import com.kingsrook.qbits.webhooks.actions.WebhookSubscriptionsHelper;
 import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookActiveStatus;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
@@ -65,7 +66,8 @@ public class BaseTest
    {
       QInstance qInstance = defineQInstance();
       new QInstanceValidator().validate(qInstance);
-      QContext.init(qInstance, new QSession());
+      QContext.init(qInstance, new QSession().withSecurityKeyValue(WebhooksTestApplication.STORE_ID_ALL_ACCESS_KEY, true));
+      WebhookSubscriptionsHelper.clearMemoizations();
 
       MemoryRecordStore.fullReset();
    }

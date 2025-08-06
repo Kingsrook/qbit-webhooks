@@ -47,6 +47,7 @@ import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperat
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterCriteria;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QueryInput;
+import com.kingsrook.qqq.backend.core.model.actions.tables.query.QueryJoin;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitConfig;
 import com.kingsrook.qqq.backend.core.model.metadata.security.QSecurityKeyType;
@@ -143,7 +144,8 @@ public class WebhookSubscriptionsHelper
          try
          {
             List<QRecord> webhooks = new QueryAction().execute(new QueryInput(Webhook.TABLE_NAME)
-                  .withFilter(new QQueryFilter(new QFilterCriteria(WebhookSubscription.TABLE_NAME + ".id", QCriteriaOperator.EQUALS, subscriptionId))))
+                  .withFilter(new QQueryFilter(new QFilterCriteria(WebhookSubscription.TABLE_NAME + ".id", QCriteriaOperator.EQUALS, subscriptionId)))
+                  .withQueryJoin(new QueryJoin(WebhookSubscription.TABLE_NAME)))
                .getRecords();
             if(webhooks.isEmpty())
             {

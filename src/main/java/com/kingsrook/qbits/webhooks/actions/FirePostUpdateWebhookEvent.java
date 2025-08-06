@@ -24,6 +24,7 @@ package com.kingsrook.qbits.webhooks.actions;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
@@ -88,7 +89,24 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
             Optional<QRecord> oldRecord = oldRecordHelper.getOldRecord(record);
             if(doesRecordMatchWebhookEventType(record, oldRecord, webhookEventType, field))
             {
-               webhookEventBuilder = FirePostInsertOrUpdateWebhookEventUtil.processSubscriptions(updateInput.getTableName(), webhookEventType, record, webhookEventBuilder, updateInput.getTransaction());
+               /////////////////////////////////////////////////////////////////////////////////////////
+               // in case the input record is "sparse" (e.g., missing some field values), and we have //
+               // the old record, then make a hybrid of the new + old for processing.                 //
+               /////////////////////////////////////////////////////////////////////////////////////////
+               QRecord recordToProcess = record;
+               if(oldRecord.isPresent())
+               {
+                  recordToProcess = new QRecord(record);
+                  for(Map.Entry<String, Serializable> entry : oldRecord.get().getValues().entrySet())
+                  {
+                     if(!recordToProcess.getValues().containsKey(entry.getKey()))
+                     {
+                        recordToProcess.getValues().put(entry.getKey(), entry.getValue());
+                     }
+                  }
+               }
+
+               webhookEventBuilder = FirePostInsertOrUpdateWebhookEventUtil.processSubscriptions(updateInput.getTableName(), webhookEventType, recordToProcess, webhookEventBuilder, updateInput.getTransaction());
             }
          }
       }

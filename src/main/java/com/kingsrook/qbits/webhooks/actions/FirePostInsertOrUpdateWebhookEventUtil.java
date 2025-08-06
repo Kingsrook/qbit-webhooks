@@ -61,14 +61,14 @@ public abstract class FirePostInsertOrUpdateWebhookEventUtil
          {
             if(WebhookSubscriptionsHelper.doesRecordMatchSubscription(webhookEventType, webhookSubscription, record, transaction))
             {
-               LOG.info("Building webhook event", logPair("tableName", tableName), logPair("recordId", record.getValue("id")), logPair("webhookEventType", webhookEventType), logPair("webhookSubscriptionId", webhookSubscription.getId()));
+               LOG.info("Building webhook event", logPair("tableName", tableName), logPair("recordId", record.getValue("id")), logPair("webhookEventType", () -> webhookEventType.getName()), logPair("webhookSubscriptionId", webhookSubscription.getId()));
                webhookEventBuilder = Objects.requireNonNullElseGet(webhookEventBuilder, WebhookEventBuilder::new);
                webhookEventBuilder.addWebhookEvent(webhookSubscription, record);
             }
          }
          catch(QException e)
          {
-            LOG.warn("Error processing webhookSubscription", e, logPair("tableName", tableName), logPair("recordId", record.getValue("id")), logPair("webhookEventType", webhookEventType), logPair("webhookSubscriptionId", webhookSubscription.getId()));
+            LOG.warn("Error processing webhookSubscription", e, logPair("tableName", tableName), logPair("recordId", record.getValue("id")), logPair("webhookEventType", () -> webhookEventType.getName()), logPair("webhookSubscriptionId", webhookSubscription.getId()));
          }
       }
       return webhookEventBuilder;

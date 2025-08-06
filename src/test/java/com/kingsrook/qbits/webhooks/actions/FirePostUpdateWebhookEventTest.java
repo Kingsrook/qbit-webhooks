@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import com.kingsrook.qbits.webhooks.BaseTest;
 import com.kingsrook.qbits.webhooks.WebhooksTestApplication;
+import com.kingsrook.qbits.webhooks.model.Webhook;
 import com.kingsrook.qbits.webhooks.model.WebhookEvent;
 import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
 import com.kingsrook.qbits.webhooks.model.WebhooksActionFlags;
@@ -127,6 +128,42 @@ class FirePostUpdateWebhookEventTest extends BaseTest
       {
          QLogger.deactivateCollectingLoggerForClass(FirePostInsertOrUpdateWebhookEventUtil.class);
       }
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   @Test
+   void testSecurityKeys() throws QException
+   {
+      Integer storeA   = 17;
+      Integer storeB   = 18;
+      Integer orderIdA = new InsertAction().execute(new InsertInput(WebhooksTestApplication.TABLE_NAME_ORDER).withRecord(new QRecord().withValue("storeId", storeA))).getRecords().get(0).getValueInteger("id");
+      Integer orderIdB = new InsertAction().execute(new InsertInput(WebhooksTestApplication.TABLE_NAME_ORDER).withRecord(new QRecord().withValue("storeId", storeB))).getRecords().get(0).getValueInteger("id");
+
+      /////////////////////////////////////////////////////////////////////
+      // register event type and make a webhook with a sub - for store A //
+      /////////////////////////////////////////////////////////////////////
+      String eventTypeName = "updatedOrder";
+      registerEventType(eventTypeName, WebhookEventCategory.UPDATE, WebhooksTestApplication.TABLE_NAME_ORDER);
+      Integer webhookId      = new InsertAction().execute(new InsertInput(Webhook.TABLE_NAME).withRecord(newWebhook(eventTypeName).toQRecord().withValue("storeId", storeA))).getRecords().get(0).getValueInteger("id");
+      Integer subscriptionId = insert(newWebhookSubscription(eventTypeName).withWebhookId(webhookId));
+
+      ///////////////////////////////////////////////////////////////////////////////////
+      // update the 2 orders - only an event for A should fire                         //
+      // of note - the record that's updated doesn't have its storeId field in it -    //
+      // so originally this case failed to match the subscription - but, now it works. //
+      ///////////////////////////////////////////////////////////////////////////////////
+      new UpdateAction().execute(new UpdateInput(WebhooksTestApplication.TABLE_NAME_ORDER).withRecord(new QRecord().withValue("id", orderIdA).withValue("orderNo", "A")));
+      new UpdateAction().execute(new UpdateInput(WebhooksTestApplication.TABLE_NAME_ORDER).withRecord(new QRecord().withValue("id", orderIdB).withValue("orderNo", "B")));
+
+      List<QRecord> insertedEvents = new QueryAction().execute(new QueryInput(WebhookEvent.TABLE_NAME)
+         .withFilter(new QQueryFilter(new QFilterCriteria("webhookSubscriptionId", QCriteriaOperator.EQUALS, subscriptionId)))
+         .withIncludeAssociations(true)).getRecords();
+      assertEquals(1, insertedEvents.size());
+      assertEquals(orderIdA, insertedEvents.get(0).getValueInteger("eventSourceRecordId"));
    }
 
 
