@@ -23,6 +23,7 @@ package com.kingsrook.qbits.webhooks.actions;
 
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
 import com.kingsrook.qbits.webhooks.model.WebhookEventCategory;
 import com.kingsrook.qbits.webhooks.model.WebhooksActionFlags;
@@ -59,11 +60,16 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
          return (records);
       }
 
-      List<WebhookEventType> webhookEventTypes = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.INSERT, insertInput.getTableName());
-      if(CollectionUtils.nullSafeIsEmpty(webhookEventTypes))
+      List<WebhookEventType> insertWebhookEventTypes = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.INSERT, insertInput.getTableName());
+      List<WebhookEventType> storeWebhookEventTypes  = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.STORE, insertInput.getTableName());
+      if(CollectionUtils.nullSafeIsEmpty(insertWebhookEventTypes) && CollectionUtils.nullSafeIsEmpty(storeWebhookEventTypes))
       {
          return (records);
       }
+
+      List<WebhookEventType> webhookEventTypes = new ArrayList<>();
+      CollectionUtils.addAllIfNotNull(webhookEventTypes, insertWebhookEventTypes);
+      CollectionUtils.addAllIfNotNull(webhookEventTypes, storeWebhookEventTypes);
 
       WebhookEventBuilder webhookEventBuilder = null;
       for(WebhookEventType webhookEventType : webhookEventTypes)
@@ -105,11 +111,11 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
    {
       switch(webhookEventType.getCategory())
       {
-         case INSERT ->
+         case INSERT, STORE ->
          {
             return (true);
          }
-         case INSERT_WITH_FIELD ->
+         case INSERT_WITH_FIELD, STORE_WITH_FIELD ->
          {
             Serializable value = FirePostInsertOrUpdateWebhookEventUtil.getValue(record, field);
             if(value != null && !"".equals(ValueUtils.getValueAsString(value)))
@@ -117,7 +123,7 @@ public class FirePostInsertWebhookEvent implements TableCustomizerInterface
                return (true);
             }
          }
-         case INSERT_WITH_VALUE ->
+         case INSERT_WITH_VALUE, STORE_WITH_VALUE ->
          {
             Serializable value = FirePostInsertOrUpdateWebhookEventUtil.getValue(record, field);
 

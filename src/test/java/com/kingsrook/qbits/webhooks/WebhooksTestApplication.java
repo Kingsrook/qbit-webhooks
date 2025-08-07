@@ -67,6 +67,7 @@ public class WebhooksTestApplication extends AbstractQQQApplication
    public static final String API_V1   = "v1";
 
    public static final String PERSON_INSERTED_EVENT_TYPE_NAME = "person.inserted";
+   public static final String PERSON_STORED_EVENT_TYPE_NAME   = "person.stored";
 
    public static final String STORE_ID_ALL_ACCESS_KEY = "storeIdAllAccess";
    public static final String STORE_ID_KEY            = "storeId";
@@ -111,6 +112,12 @@ public class WebhooksTestApplication extends AbstractQQQApplication
          .withName(PERSON_INSERTED_EVENT_TYPE_NAME)
          .withLabel("Person Inserted")
          .withCategory(WebhookEventCategory.INSERT)
+         .withTableName(TABLE_NAME_PERSON));
+
+      WebhooksRegistry.ofOrWithNew(qInstance).registerWebhookEventType(new WebhookEventType()
+         .withName(PERSON_STORED_EVENT_TYPE_NAME)
+         .withLabel("Person Stored")
+         .withCategory(WebhookEventCategory.STORE)
          .withTableName(TABLE_NAME_PERSON));
 
       /////////////

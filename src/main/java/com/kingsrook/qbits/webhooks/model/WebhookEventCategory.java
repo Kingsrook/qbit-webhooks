@@ -41,6 +41,10 @@ public enum WebhookEventCategory implements PossibleValueEnum<String>
    UPDATE_WITH_FIELD("update-with-field", "Record Updated with Field", Kind.UPDATE, true, true, false),
    UPDATE_WITH_VALUE("update-with-value", "Record Updated with Specific Value", Kind.UPDATE, true, true, true),
 
+   STORE("store", "Record Stored", Kind.STORE, true, false, false),
+   STORE_WITH_FIELD("store-with-field", "Record Stored with Field", Kind.STORE, true, true, false),
+   STORE_WITH_VALUE("store-with-value", "Record Stored with Specific Value", Kind.STORE, true, true, true),
+
    AD_HOC("ad-hoc", "Ad Hoc", Kind.AD_HOC, false, false, false);
 
    private final String id;
@@ -61,6 +65,7 @@ public enum WebhookEventCategory implements PossibleValueEnum<String>
    {
       INSERT,
       UPDATE,
+      STORE,
       AD_HOC
    }
 

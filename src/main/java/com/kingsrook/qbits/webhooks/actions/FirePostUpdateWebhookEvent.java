@@ -23,6 +23,7 @@ package com.kingsrook.qbits.webhooks.actions;
 
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,11 +63,16 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
          return (records);
       }
 
-      List<WebhookEventType> webhookEventTypes = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.UPDATE, updateInput.getTableName());
-      if(CollectionUtils.nullSafeIsEmpty(webhookEventTypes))
+      List<WebhookEventType> updateWebhookEventTypes = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.UPDATE, updateInput.getTableName());
+      List<WebhookEventType> storeWebhookEventTypes  = WebhookSubscriptionsHelper.getWebhookEventTypesToConsiderFiringEventsFor(WebhookEventCategory.Kind.STORE, updateInput.getTableName());
+      if(CollectionUtils.nullSafeIsEmpty(updateWebhookEventTypes) && CollectionUtils.nullSafeIsEmpty(storeWebhookEventTypes))
       {
          return (records);
       }
+
+      List<WebhookEventType> webhookEventTypes = new ArrayList<>();
+      CollectionUtils.addAllIfNotNull(webhookEventTypes, updateWebhookEventTypes);
+      CollectionUtils.addAllIfNotNull(webhookEventTypes, storeWebhookEventTypes);
 
       OldRecordHelper oldRecordHelper = new OldRecordHelper(updateInput.getTableName(), oldRecordList);
 
@@ -128,11 +134,11 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
    {
       switch(webhookEventType.getCategory())
       {
-         case UPDATE ->
+         case UPDATE, STORE ->
          {
             return (true);
          }
-         case UPDATE_WITH_FIELD ->
+         case UPDATE_WITH_FIELD, STORE_WITH_FIELD ->
          {
             if(optionalOldRecord.isEmpty())
             {
@@ -146,7 +152,7 @@ public class FirePostUpdateWebhookEvent implements TableCustomizerInterface
                return (true);
             }
          }
-         case UPDATE_WITH_VALUE ->
+         case UPDATE_WITH_VALUE, STORE_WITH_VALUE ->
          {
             if(optionalOldRecord.isEmpty())
             {

@@ -136,6 +136,46 @@ class FirePostUpdateWebhookEventTest extends BaseTest
     **
     *******************************************************************************/
    @Test
+   void testStoreEventType() throws QException
+   {
+      try
+      {
+         Integer personId = new InsertAction().execute(new InsertInput(WebhooksTestApplication.TABLE_NAME_PERSON).withRecord(new QRecord())).getRecords().get(0).getValueInteger("id");
+
+         QCollectingLogger collectingLogger = QLogger.activateCollectingLoggerForClass(FirePostInsertOrUpdateWebhookEventUtil.class);
+
+         ///////////////////////////////////////////////////////////////////
+         // register event type and make a sub - then assert positive log //
+         ///////////////////////////////////////////////////////////////////
+         Integer subscriptionId = insert(newWebhookSubscription(WebhooksTestApplication.PERSON_STORED_EVENT_TYPE_NAME));
+
+         new UpdateAction().execute(new UpdateInput(WebhooksTestApplication.TABLE_NAME_PERSON)
+            .withRecord(new QRecord().withValue("id", personId).withValue("firstName", "Bobby")));
+         assertThat(collectingLogger.getCollectedMessages())
+            .anyMatch(m -> m.getMessage().matches(".*Building webhook event.*"));
+         collectingLogger.clear();
+
+         ///////////////////////////////////////////////
+         // query to make sure event was inserted too //
+         ///////////////////////////////////////////////
+         List<QRecord> insertedEvents = new QueryAction().execute(new QueryInput(WebhookEvent.TABLE_NAME)
+            .withFilter(new QQueryFilter(new QFilterCriteria("webhookSubscriptionId", QCriteriaOperator.EQUALS, subscriptionId)))
+            .withIncludeAssociations(true)).getRecords();
+         assertEquals(1, insertedEvents.size());
+         assertEquals(personId, insertedEvents.get(0).getValueInteger("eventSourceRecordId"));
+      }
+      finally
+      {
+         QLogger.deactivateCollectingLoggerForClass(FirePostInsertOrUpdateWebhookEventUtil.class);
+      }
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   @Test
    void testSecurityKeys() throws QException
    {
       Integer storeA   = 17;

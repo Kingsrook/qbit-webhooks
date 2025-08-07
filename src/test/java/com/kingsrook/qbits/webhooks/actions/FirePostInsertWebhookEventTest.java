@@ -126,12 +126,52 @@ class FirePostInsertWebhookEventTest extends BaseTest
     **
     *******************************************************************************/
    @Test
+   void testStoreEventKind() throws QException
+   {
+      try
+      {
+         QCollectingLogger collectingLogger = QLogger.activateCollectingLoggerForClass(FirePostInsertOrUpdateWebhookEventUtil.class);
+
+         /////////////////////////////////////////////////////////////////////////////
+         // register a 'store' event type and make a sub - then assert positive log //
+         /////////////////////////////////////////////////////////////////////////////
+         insert(newWebhookSubscription(WebhooksTestApplication.PERSON_STORED_EVENT_TYPE_NAME));
+
+         Integer personId = new InsertAction().execute(new InsertInput(WebhooksTestApplication.TABLE_NAME_PERSON)
+               .withRecord(new QRecord().withValue("firstName", "Bubba").withValue("lastName", "Fit")))
+            .getRecords().get(0).getValueInteger("id");
+         assertThat(collectingLogger.getCollectedMessages())
+            .anyMatch(m -> m.getMessage().matches(".*Building webhook event.*"));
+         collectingLogger.clear();
+
+         ///////////////////////////////////////////////
+         // query to make sure event was inserted too //
+         ///////////////////////////////////////////////
+         List<QRecord> insertedEvents = new QueryAction().execute(new QueryInput(WebhookEvent.TABLE_NAME).withIncludeAssociations(true)).getRecords();
+         assertEquals(1, insertedEvents.size());
+         assertEquals(personId, insertedEvents.get(0).getValueInteger("eventSourceRecordId"));
+      }
+      finally
+      {
+         QLogger.deactivateCollectingLoggerForClass(FirePostInsertOrUpdateWebhookEventUtil.class);
+      }
+   }
+
+
+
+   /*******************************************************************************
+    **
+    *******************************************************************************/
+   @Test
    void testDoesRecordMatchWebhookEventType()
    {
       WebhookEventType insert                   = new WebhookEventType().withCategory(WebhookEventCategory.INSERT);
       WebhookEventType insertFirstName          = new WebhookEventType().withCategory(WebhookEventCategory.INSERT_WITH_FIELD).withFieldName("firstName");
       WebhookEventType insertFirstNameJohn      = new WebhookEventType().withCategory(WebhookEventCategory.INSERT_WITH_VALUE).withFieldName("firstName").withValue("John");
       WebhookEventType insertFirstNameAnyBeatle = new WebhookEventType().withCategory(WebhookEventCategory.INSERT_WITH_VALUE).withFieldName("firstName").withValue(new ArrayList<>(List.of("John", "George", "Paul", "Ringo")));
+      WebhookEventType store                    = new WebhookEventType().withCategory(WebhookEventCategory.STORE);
+      WebhookEventType storeFirstName           = new WebhookEventType().withCategory(WebhookEventCategory.STORE_WITH_FIELD).withFieldName("firstName");
+      WebhookEventType storeFirstNameJohn       = new WebhookEventType().withCategory(WebhookEventCategory.STORE_WITH_VALUE).withFieldName("firstName").withValue("John");
 
       QFieldMetaData field = QContext.getQInstance().getTable(WebhooksTestApplication.TABLE_NAME_PERSON).getField("firstName");
 
@@ -140,24 +180,36 @@ class FirePostInsertWebhookEventTest extends BaseTest
       assertFalse(doesMatch(emptyRecord, insertFirstName, field));
       assertFalse(doesMatch(emptyRecord, insertFirstNameJohn, field));
       assertFalse(doesMatch(emptyRecord, insertFirstNameAnyBeatle, field));
+      assertTrue(doesMatch(emptyRecord, store, field));
+      assertFalse(doesMatch(emptyRecord, storeFirstName, field));
+      assertFalse(doesMatch(emptyRecord, storeFirstNameJohn, field));
 
       QRecord firstNameJoeRecord = new QRecord().withValue("firstName", "Joe");
       assertTrue(doesMatch(firstNameJoeRecord, insert, field));
       assertTrue(doesMatch(firstNameJoeRecord, insertFirstName, field));
       assertFalse(doesMatch(firstNameJoeRecord, insertFirstNameJohn, field));
       assertFalse(doesMatch(firstNameJoeRecord, insertFirstNameAnyBeatle, field));
+      assertTrue(doesMatch(firstNameJoeRecord, store, field));
+      assertTrue(doesMatch(firstNameJoeRecord, storeFirstName, field));
+      assertFalse(doesMatch(firstNameJoeRecord, storeFirstNameJohn, field));
 
       QRecord firstNameJohnRecord = new QRecord().withValue("firstName", "John");
       assertTrue(doesMatch(firstNameJohnRecord, insert, field));
       assertTrue(doesMatch(firstNameJohnRecord, insertFirstName, field));
       assertTrue(doesMatch(firstNameJohnRecord, insertFirstNameJohn, field));
       assertTrue(doesMatch(firstNameJohnRecord, insertFirstNameAnyBeatle, field));
+      assertTrue(doesMatch(firstNameJohnRecord, store, field));
+      assertTrue(doesMatch(firstNameJohnRecord, storeFirstName, field));
+      assertTrue(doesMatch(firstNameJohnRecord, storeFirstNameJohn, field));
 
       QRecord firstNameRingoRecord = new QRecord().withValue("firstName", "Ringo");
       assertTrue(doesMatch(firstNameRingoRecord, insert, field));
       assertTrue(doesMatch(firstNameRingoRecord, insertFirstName, field));
       assertFalse(doesMatch(firstNameRingoRecord, insertFirstNameJohn, field));
       assertTrue(doesMatch(firstNameRingoRecord, insertFirstNameAnyBeatle, field));
+      assertTrue(doesMatch(firstNameRingoRecord, store, field));
+      assertTrue(doesMatch(firstNameRingoRecord, storeFirstName, field));
+      assertFalse(doesMatch(firstNameRingoRecord, storeFirstNameJohn, field));
    }
 
 
