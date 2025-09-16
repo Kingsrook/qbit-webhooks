@@ -23,24 +23,57 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
    <modelVersion>4.0.0</modelVersion>
 
+   <parent>
+      <groupId>com.kingsrook</groupId>
+      <artifactId>qbit-build-parent</artifactId>
+      <version>1.1.0</version>
+   </parent>
+
    <groupId>com.kingsrook.qbits</groupId>
    <artifactId>qbit-webhooks</artifactId>
-   <version>0.1.4-SNAPSHOT</version>
+   <version>${revision}</version>
+   <packaging>jar</packaging>   
+
+   <name>QBit Webhooks</name>
+   <description>Webhook implementation for QQQ applications, enabling real-time event notifications to external systems and partners</description>
+   <url>https://github.com/Kingsrook/qbit-webhooks</url>
+
+   <licenses>
+      <license>
+         <name>GNU Affero General Public License v3.0</name>
+         <url>https://www.gnu.org/licenses/agpl-3.0.html</url>
+         <distribution>repo</distribution>
+      </license>
+   </licenses>
+
+   <developers>
+      <developer>
+         <id>kingsrook</id>
+         <name>Kingsrook Team</name>
+         <email>contact@kingsrook.com</email>
+         <organization>Kingsrook, LLC</organization>
+         <organizationUrl>https://kingsrook.com</organizationUrl>
+      </developer>
+   </developers>
+
+   <scm>
+      <connection>scm:git:git://github.com/Kingsrook/qbit-webhooks.git</connection>
+      <developerConnection>scm:git:ssh://github.com:Kingsrook/qbit-webhooks.git</developerConnection>
+      <url>https://github.com/Kingsrook/qbit-webhooks</url>
+      <tag>HEAD</tag>
+   </scm>
 
    <properties>
-      <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-      <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-      <maven.compiler.source>17</maven.compiler.source>
-      <maven.compiler.target>17</maven.compiler.target>
-      <testOutputToFile>true</testOutputToFile>
+      <revision>0.2.0-SNAPSHOT</revision>
    </properties>
+
 
    <dependencyManagement>
       <dependencies>
          <dependency>
             <groupId>com.kingsrook.qqq</groupId>
             <artifactId>qqq-bom-pom</artifactId>
-            <version>0.26.0-20250723-153141</version>
+            <version>0.27.9</version>
             <type>pom</type>
             <scope>import</scope>
          </dependency>
@@ -61,7 +94,7 @@
       </dependency>
       <dependency>
          <groupId>com.kingsrook.qqq</groupId>
-         <artifactId>qqq-middleware-api</artifactId>
+         <artifactId>qqq-middleware-api</artifactId> 
       </dependency>
 
       <dependency>
@@ -75,41 +108,6 @@
          <version>3.27.3</version>
          <scope>test</scope>
       </dependency>
-      <dependency>
-         <groupId>com.kingsrook.qqq</groupId>
-         <artifactId>qqq-middleware-javalin</artifactId>
-         <scope>test</scope>
-      </dependency>
    </dependencies>
-
-   <build>
-      <plugins>
-         <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <version>3.0.0-M5</version>
-            <configuration>
-               <!-- Reduce console output for cleaner JUnit output -->
-               <redirectTestOutputToFile>${testOutputToFile}</redirectTestOutputToFile>
-            </configuration>
-         </plugin>
-      </plugins>
-   </build>
-
-   <repositories>
-      <repository>
-         <id>github-qqq-maven-registry</id>
-         <name>GitHub QQQ Maven Registry</name>
-         <url>https://maven.pkg.github.com/Kingsrook/qqq-maven-registry</url>
-      </repository>
-   </repositories>
-
-   <distributionManagement>
-      <repository>
-         <id>github-qqq-maven-registry</id>
-         <name>GitHub QQQ Maven Registry</name>
-         <url>https://maven.pkg.github.com/Kingsrook/qqq-maven-registry</url>
-      </repository>
-   </distributionManagement>
 
 </project>
