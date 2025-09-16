@@ -1,5 +1,6 @@
 # QBit: Webhooks
 
+[![Build Status](https://circleci.com/gh/Kingsrook/qbit-webhooks.svg?style=svg)](https://circleci.com/gh/Kingsrook/qbit-webhooks)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Kingsrook/qbit-webhooks)
 [![License](https://img.shields.io/badge/license-GNU%20Affero%20GPL%20v3-green.svg)](https://www.gnu.org/licenses/agpl-3.0.en.html)
 [![Java](https://img.shields.io/badge/java-17+-blue.svg)](https://adoptium.net/)
@@ -158,7 +159,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** - 
 - **Main Repository**: https://github.com/Kingsrook/qqq
 - **Issues**: https://github.com/Kingsrook/qqq/issues
 - **Discussions**: https://github.com/Kingsrook/qqq/discussions
-- **Wiki**: https://github.com/Kingsrook/qqq.wiki
+- **Wiki**: https://github.com/Kingsrook/qqq/wiki
 
 ### Why This Repository Exists
 
@@ -168,9 +169,9 @@ This repository is maintained separately from the main QQQ repository to:
 - **Provide clear separation** between QBit components and core framework concerns
 - **Support different release cycles** for QBits vs. core framework
 
-### Getting Help
+### Getting Help:
 
-- **Documentation**: Check the [QQQ Wiki](https://github.com/Kingsrook/qqq.wiki)
+- **Documentation**: Check the [QQQ Wiki](https://github.com/Kingsrook/qqq/wiki)
 - **Issues**: Report bugs and feature requests on [Main QQQ Issues](https://github.com/Kingsrook/qqq/issues)
 - **Discussions**: Join community discussions on [Main QQQ Discussions](https://github.com/Kingsrook/qqq/discussions)
 - **Questions**: Ask questions in the main QQQ repository
